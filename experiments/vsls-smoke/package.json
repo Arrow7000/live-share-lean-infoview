@@ -1,0 +1,38 @@
+{
+  "name": "vsls-smoke-probe",
+  "displayName": "VSLS Smoke Probe",
+  "description": "Throwaway diagnostic: does a non-whitelisted extension's Live Share shareService/getSharedService round-trip actually work?",
+  "version": "0.0.1",
+  "publisher": "live-share-lean-infoview",
+  "private": true,
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vslsSmoke.runProbe",
+        "title": "VSLS Smoke: Run Probe (guest -> host echo)"
+      },
+      {
+        "command": "vslsSmoke.showLog",
+        "title": "VSLS Smoke: Show Log"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.75.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "vsls": "^1.0.4753"
+  }
+}
