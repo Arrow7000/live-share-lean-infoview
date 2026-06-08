@@ -30,13 +30,21 @@ async function getClientProvider(log: (s: string) => void): Promise<{ getClients
  * client, and relay the guest's RPC to it (with vsls<->file URI translation).
  */
 export async function startHostRole(api: vsls.LiveShare, log: (s: string) => void): Promise<vscode.Disposable> {
+  log(`HOST: extension id = ${vscode.extensions.getExtension('live-share-lean-infoview.lean4-live-share-infoview')?.id ?? '(dev)'}`)
   log(`HOST: sharing service '${SERVICE_NAME}'...`)
-  const service = await api.shareService(SERVICE_NAME)
-  if (!service) {
-    log('HOST: shareService returned null — Live Share may not permit this extension to share a service.')
+  let service: Awaited<ReturnType<typeof api.shareService>>
+  try {
+    service = await api.shareService(SERVICE_NAME)
+  } catch (e) {
+    log(`HOST: shareService THREW: ${describe(e)} — this strongly suggests Live Share gates shared services for this extension.`)
     return { dispose: () => {} }
   }
-  log('HOST: service shared.')
+  if (!service) {
+    log('HOST: shareService returned null — Live Share may not permit this extension to share a service (whitelist).')
+    return { dispose: () => {} }
+  }
+  log(`HOST: service shared. isServiceAvailable=${service.isServiceAvailable}`)
+  service.onDidChangeIsServiceAvailable(a => log(`HOST: service availability -> ${a}`))
 
   const clientProvider = await getClientProvider(log)
   if (!clientProvider) {

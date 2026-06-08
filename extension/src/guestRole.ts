@@ -33,17 +33,10 @@ export async function startGuestRole(
   log(`GUEST: getting shared service '${SERVICE_NAME}'...`)
   const proxy = await api.getSharedService(SERVICE_NAME)
   if (!proxy) {
-    log('GUEST: getSharedService returned null — the host may not be sharing the bridge.')
+    log('GUEST: getSharedService returned null — Live Share may not permit this extension to use shared services.')
     return { dispose: () => {} }
   }
-
-  // Wait for the host to actually be sharing.
-  for (let i = 0; i < 60 && !proxy.isServiceAvailable; i++) await sleep(250)
-  if (!proxy.isServiceAvailable) {
-    log('GUEST: bridge service not available (is the host in a session with this extension?).')
-    return { dispose: () => {} }
-  }
-  log('GUEST: bridge service available.')
+  log(`GUEST: got proxy. isServiceAvailable=${proxy.isServiceAvailable}`)
 
   const guestClient = new GuestEditorClient(createGuestChannel(proxy))
 
@@ -56,26 +49,16 @@ export async function startGuestRole(
     log,
   })
 
+  // Open the panel immediately so the user sees the infoview (it shows
+  // "Waiting for Lean server..." until the bridge becomes available).
   infoviewHost = createInfoviewPanel(context, editorApi, log, { title: 'Lean Infoview (Live Share guest)' })
 
-  // Tell the infoview the server is up so it leaves the "waiting" state.
-  try {
-    const init = await guestClient.getServerInitializeResult()
-    if (init) {
-      await infoviewHost.infoview.serverRestarted(init as never)
-      log(`GUEST: serverRestarted (version ${init.serverInfo?.version}).`)
-    } else {
-      log('GUEST: host returned no initialize result; infoview may stay in "waiting" state.')
-    }
-  } catch (e) {
-    log(`GUEST: failed to fetch server initialize result: ${e instanceof Error ? e.message : String(e)}`)
-  }
-
   // Drive the cursor → infoview loop from the guest's selection (debounced).
+  let live = false
   let initialized = false
   let timer: NodeJS.Timeout | undefined
   const pushCursor = (editor: vscode.TextEditor | undefined) => {
-    if (!editor || !isLeanDoc(editor.document)) return
+    if (!live || !editor || !isLeanDoc(editor.document)) return
     const loc = locationOf(editor)
     clearTimeout(timer)
     timer = setTimeout(() => {
@@ -89,11 +72,44 @@ export async function startGuestRole(
     }, 100)
   }
 
-  pushCursor(vscode.window.activeTextEditor)
+  // Start the session once the host's service is available. Driven by the
+  // availability event so we recover if the host shares late or re-shares.
+  const goLive = async () => {
+    if (live) return
+    live = true
+    log('GUEST: bridge available; starting infoview session.')
+    try {
+      const init = await guestClient.getServerInitializeResult()
+      if (init) {
+        await infoviewHost!.infoview.serverRestarted(init as never)
+        log(`GUEST: serverRestarted (version ${init.serverInfo?.version}).`)
+      } else {
+        log('GUEST: host returned no initialize result; infoview may stay in "waiting" state.')
+      }
+    } catch (e) {
+      log(`GUEST: failed to fetch server initialize result: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    pushCursor(vscode.window.activeTextEditor)
+  }
+
   const subs: vscode.Disposable[] = [
+    proxy.onDidChangeIsServiceAvailable(available => {
+      log(`GUEST: service availability -> ${available}`)
+      if (available) void goLive()
+      else live = false
+    }),
     vscode.window.onDidChangeTextEditorSelection(e => pushCursor(e.textEditor)),
     vscode.window.onDidChangeActiveTextEditor(editor => pushCursor(editor)),
   ]
+
+  if (proxy.isServiceAvailable) {
+    void goLive()
+  } else {
+    log('GUEST: waiting for the host to share the bridge (start a session on the host with this extension)...')
+    void sleep(20_000).then(() => {
+      if (!live) log('GUEST: still no bridge after 20s. Check the HOST window log (Lean Live Share: Show Log).')
+    })
+  }
 
   return {
     dispose: () => {
