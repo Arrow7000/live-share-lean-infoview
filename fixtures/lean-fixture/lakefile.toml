@@ -1,0 +1,5 @@
+name = "leanFixture"
+defaultTargets = ["Fixture"]
+
+[[lean_lib]]
+name = "Fixture"

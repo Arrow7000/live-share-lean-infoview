@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+*.log
+
+# Cloned upstream sources, kept locally for reference only
+reference/
+
+# Lean build artifacts
+.lake/
+build/
+lakefile.olean

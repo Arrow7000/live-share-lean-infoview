@@ -1,0 +1,23 @@
+{
+  "name": "live-share-lean-infoview",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lean 4 Infoview for VS Code / Cursor Live Share guests (companion extension + transport-agnostic bridge).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test:m1": "node --import tsx --test test/lean-rpc.integration.test.ts",
+    "spike:m1": "tsx src/lean-rpc/m1-spike.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "^8.2.1",
+    "vscode-languageserver-protocol": "^3.17.5"
+  }
+}
