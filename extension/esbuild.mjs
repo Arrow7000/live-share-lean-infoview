@@ -29,7 +29,9 @@ const extensionOptions = {
   platform: 'node',
   format: 'cjs',
   target: 'node18',
-  external: ['vscode'],
+  // `vscode` is provided by the host; `ws` pulls optional native deps it loads
+  // in a try/catch (it falls back to JS), so we leave them external.
+  external: ['vscode', 'bufferutil', 'utf-8-validate'],
   sourcemap: true,
   logLevel: 'info',
 }

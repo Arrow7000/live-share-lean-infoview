@@ -45,6 +45,8 @@
   "dependencies": {
     "@leanprover/infoview": "^0.13.0",
     "@leanprover/infoview-api": "^0.13.0",
-    "vsls": "^1.0.4753"
+    "@types/ws": "^8.18.1",
+    "vsls": "^1.0.4753",
+    "ws": "^8.21.0"
   }
 }

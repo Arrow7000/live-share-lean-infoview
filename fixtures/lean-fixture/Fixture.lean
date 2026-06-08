@@ -10,7 +10,7 @@ to elaborate it; a bare `lean --server` (or `lake env lean --server`) suffices.
 
 Cursor positions referenced by the test are 0-indexed (LSP convention) and are
 computed in the test from these anchors:
-
+wow comment from Jake!
   - The tactic block goal is requested at the start of the `exact` line.
 -/
 

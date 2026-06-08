@@ -20,6 +20,15 @@ See `HANDOVER` (the originating design doc) for the full plan. This README track
 | **M4** | **Real Live Share transport + host/guest wiring** | ✅ machine-testable parts green; ⏳ end-to-end needs a manual two-window run |
 | M5 | Hardening (multi-project clients, widgets, cancellation, multiple guests) | not started |
 
+> **Transport note (confirmed by manual test 2026-06-08):** Live Share **gates
+> `shareService`/`getSharedService`** to an allowlist — they return `null` for a
+> third-party extension (exactly the vscode-lean4#390 concern). So the bridge
+> transports over **`shareServer(port)` + WebSocket** instead, which is *not*
+> gated (no "may be restricted" note in the vsls API): the host runs a localhost
+> WebSocket server and shares its port; the guest connects to that port (derived
+> deterministically from the session id, so no `shareService` is needed to agree
+> on it). This is why the transport was kept abstract — only the adapter changed.
+
 **Machine-verified end to end (no Live Share, no human):** the Lean custom RPC,
 the host bridge over loopback/WebSocket against a *real* Lean server, the full
 guest data path (webview `EditorApi` → RPC → bridge → real Lean), the real
@@ -279,9 +288,22 @@ From the `vsls` package type defs (`node_modules/vsls/vscode.ts`):
   `onDidChangePeers`, `shareServer(server): Promise<Disposable>`.
 
 Mapping onto the bridge: guest→host RPC = `proxy.request(...)` ↔ `service.onRequest(...)`;
-host→guest server notifications = `service.notify(...)` ↔ `proxy.onNotify(...)`. Since
-our companion extension shares its **own** service (same id on host and guest), no
-cross-extension name prefixing is needed.
+host→guest server notifications = `service.notify(...)` ↔ `proxy.onNotify(...)`.
+
+**However — corrected by the manual test (2026-06-08):** `shareService` /
+`getSharedService` are **gated by Live Share to an allowlist** and return `null`
+for a third-party extension. The vsls API docs admit this ("Access to shared
+services may be restricted. If the caller is not permitted, this method returns
+`null`"), and the host log confirmed it (`shareService returned null`). This is
+the precise blocker mhuisi described in #390. The `LiveShareChannel` adapter and
+its mock test remain valid, but are **not usable in practice**.
+
+**The working transport is `shareServer(port)` + WebSocket**, which carries *no*
+restriction note in the vsls API. The host runs a localhost WebSocket server and
+calls `shareServer({ port })`; the guest connects to `ws://127.0.0.1:<port>`.
+The port is derived from `session.id` (identical on both peers) so no gated
+channel is needed to exchange it. On one machine the guest reaches the host's
+server directly; across machines Live Share tunnels the port.
 
 ---
 

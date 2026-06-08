@@ -1,11 +1,11 @@
 import * as vscode from 'vscode'
 import type * as vsls from 'vsls'
 import { GuestEditorClient } from '../../src/bridge/guestEditorClient.js'
-import { createGuestChannel } from '../../src/bridge/liveShareChannel.js'
+import { connectWebSocketGuest, type WebSocketChannel } from '../../src/bridge/webSocketChannel.js'
 import type { Location } from '../../src/infoview/api.js'
 import { createGuestEditorApi } from '../../src/infoview/guestEditorApi.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
-import { SERVICE_NAME } from './protocol.js'
+import { portForSession } from './protocol.js'
 
 const LEAN_LANGUAGES = new Set(['lean', 'lean4'])
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
@@ -30,15 +30,35 @@ export async function startGuestRole(
   api: vsls.LiveShare,
   log: (s: string) => void,
 ): Promise<vscode.Disposable> {
-  log(`GUEST: getting shared service '${SERVICE_NAME}'...`)
-  const proxy = await api.getSharedService(SERVICE_NAME)
-  if (!proxy) {
-    log('GUEST: getSharedService returned null — Live Share may not permit this extension to use shared services.')
+  const sessionId = api.session.id
+  if (!sessionId) {
+    log('GUEST: no session id yet; cannot connect to the bridge.')
     return { dispose: () => {} }
   }
-  log(`GUEST: got proxy. isServiceAvailable=${proxy.isServiceAvailable}`)
+  const port = portForSession(sessionId)
+  const url = `ws://127.0.0.1:${port}`
+  log(`GUEST: connecting to bridge at ${url} (derived from session id)...`)
 
-  const guestClient = new GuestEditorClient(createGuestChannel(proxy))
+  // Connect to the host's WebSocket bridge (shared via shareServer; on the same
+  // machine this reaches the host's server directly). Retry while the host's
+  // server / Live Share tunnel comes up.
+  let channel: WebSocketChannel | undefined
+  let disposed = false
+  for (let i = 0; i < 60 && !disposed; i++) {
+    try {
+      channel = await connectWebSocketGuest(url)
+      break
+    } catch {
+      await sleep(1000)
+    }
+  }
+  if (!channel) {
+    log(`GUEST: could not connect to the bridge at ${url}. Is the host in a session with this extension?`)
+    return { dispose: () => {} }
+  }
+  log('GUEST: connected to bridge.')
+
+  const guestClient = new GuestEditorClient(channel)
 
   let infoviewHost: InfoviewHost | undefined
   const editorApi = createGuestEditorApi(guestClient, {
@@ -72,51 +92,49 @@ export async function startGuestRole(
     }, 100)
   }
 
-  // Start the session once the host's service is available. Driven by the
-  // availability event so we recover if the host shares late or re-shares.
+  // Start the infoview session: fetch the server's initialize result (retrying,
+  // since the host's Lean server may still be starting), tell the infoview the
+  // server is up, then begin driving the cursor.
   const goLive = async () => {
     if (live) return
-    live = true
-    log('GUEST: bridge available; starting infoview session.')
-    try {
-      const init = await guestClient.getServerInitializeResult()
-      if (init) {
-        await infoviewHost!.infoview.serverRestarted(init as never)
-        log(`GUEST: serverRestarted (version ${init.serverInfo?.version}).`)
-      } else {
-        log('GUEST: host returned no initialize result; infoview may stay in "waiting" state.')
+    let init
+    for (let i = 0; i < 60 && !disposed; i++) {
+      try {
+        init = await guestClient.getServerInitializeResult()
+      } catch (e) {
+        log(`GUEST: getServerInitializeResult failed (attempt ${i}): ${e instanceof Error ? e.message : String(e)}`)
       }
-    } catch (e) {
-      log(`GUEST: failed to fetch server initialize result: ${e instanceof Error ? e.message : String(e)}`)
+      if (init && (init.capabilities as { experimental?: unknown } | undefined)?.experimental !== undefined) break
+      if (init) log('GUEST: host has no server capabilities yet (Lean server still starting?); retrying...')
+      init = undefined
+      await sleep(1000)
+    }
+    if (disposed) return
+    live = true
+    if (init) {
+      await infoviewHost!.infoview.serverRestarted(init as never)
+      log(`GUEST: serverRestarted (version ${init.serverInfo?.version}). Move the cursor into a proof.`)
+    } else {
+      log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
     }
     pushCursor(vscode.window.activeTextEditor)
   }
 
   const subs: vscode.Disposable[] = [
-    proxy.onDidChangeIsServiceAvailable(available => {
-      log(`GUEST: service availability -> ${available}`)
-      if (available) void goLive()
-      else live = false
-    }),
     vscode.window.onDidChangeTextEditorSelection(e => pushCursor(e.textEditor)),
     vscode.window.onDidChangeActiveTextEditor(editor => pushCursor(editor)),
   ]
 
-  if (proxy.isServiceAvailable) {
-    void goLive()
-  } else {
-    log('GUEST: waiting for the host to share the bridge (start a session on the host with this extension)...')
-    void sleep(20_000).then(() => {
-      if (!live) log('GUEST: still no bridge after 20s. Check the HOST window log (Lean Live Share: Show Log).')
-    })
-  }
+  void goLive()
 
   return {
     dispose: () => {
+      disposed = true
       clearTimeout(timer)
       for (const s of subs) s.dispose()
       editorApi.dispose()
       guestClient.dispose()
+      channel.dispose()
       infoviewHost?.dispose()
       log('GUEST: infoview session disposed.')
     },

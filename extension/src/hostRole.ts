@@ -1,15 +1,17 @@
 import * as vscode from 'vscode'
 import type * as vsls from 'vsls'
 import { LeanBridgeHost } from '../../src/bridge/leanBridgeHost.js'
-import { createHostChannel } from '../../src/bridge/liveShareChannel.js'
 import { makeUriTranslatingHostChannel } from '../../src/bridge/uriTranslation.js'
+import { startWebSocketHost, type WebSocketHost } from '../../src/bridge/webSocketChannel.js'
 import { adaptLeanClient, type RealLeanClient } from './leanClientAdapter.js'
-import { SERVICE_NAME } from './protocol.js'
+import { portForSession, SHARED_SERVER_NAME } from './protocol.js'
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
 /** Get vscode-lean4's `clientProvider` (which hands out `LeanClient`s) via its public exports. */
-async function getClientProvider(log: (s: string) => void): Promise<{ getClients(): RealLeanClient[]; clientAdded?: vscode.Event<RealLeanClient> } | undefined> {
+async function getClientProvider(
+  log: (s: string) => void,
+): Promise<{ getClients(): RealLeanClient[] } | undefined> {
   const leanExt = vscode.extensions.getExtension('leanprover.lean4')
   if (!leanExt) {
     log('HOST: vscode-lean4 (leanprover.lean4) is not installed — cannot bridge the Lean server.')
@@ -26,52 +28,78 @@ async function getClientProvider(log: (s: string) => void): Promise<{ getClients
 }
 
 /**
- * Wire the host side: share the bridge service, obtain the host's real Lean
- * client, and relay the guest's RPC to it (with vsls<->file URI translation).
+ * Wire the host side. Because Live Share gates custom shared services, we run a
+ * localhost WebSocket server, expose it to guests via `shareServer(port)`, and
+ * relay each guest connection to the host's real Lean client (with vsls<->file
+ * URI translation). The port is derived from the session id so the guest can
+ * find it without the gated `shareService`.
  */
 export async function startHostRole(api: vsls.LiveShare, log: (s: string) => void): Promise<vscode.Disposable> {
-  log(`HOST: extension id = ${vscode.extensions.getExtension('live-share-lean-infoview.lean4-live-share-infoview')?.id ?? '(dev)'}`)
-  log(`HOST: sharing service '${SERVICE_NAME}'...`)
-  let service: Awaited<ReturnType<typeof api.shareService>>
-  try {
-    service = await api.shareService(SERVICE_NAME)
-  } catch (e) {
-    log(`HOST: shareService THREW: ${describe(e)} — this strongly suggests Live Share gates shared services for this extension.`)
+  const sessionId = api.session.id
+  if (!sessionId) {
+    log('HOST: no session id yet; cannot start bridge.')
     return { dispose: () => {} }
   }
-  if (!service) {
-    log('HOST: shareService returned null — Live Share may not permit this extension to share a service (whitelist).')
-    return { dispose: () => {} }
-  }
-  log(`HOST: service shared. isServiceAvailable=${service.isServiceAvailable}`)
-  service.onDidChangeIsServiceAvailable(a => log(`HOST: service availability -> ${a}`))
+  const port = portForSession(sessionId)
 
   const clientProvider = await getClientProvider(log)
-  if (!clientProvider) {
-    return { dispose: () => void api.unshareService(SERVICE_NAME) }
+  if (!clientProvider) return { dispose: () => {} }
+
+  for (let i = 0; i < 40 && clientProvider.getClients().length === 0; i++) await sleep(250)
+  log(`HOST: ${clientProvider.getClients().length} Lean client(s) available.`)
+
+  let wsHost: WebSocketHost
+  try {
+    wsHost = await startWebSocketHost(port, '127.0.0.1')
+    log(`HOST: WebSocket bridge listening on 127.0.0.1:${port}`)
+  } catch (e) {
+    log(`HOST: failed to bind bridge port ${port}: ${describe(e)}`)
+    return { dispose: () => {} }
   }
 
-  // Wait briefly for a Lean client to exist (the host should have a Lean file open).
-  for (let i = 0; i < 40 && clientProvider.getClients().length === 0; i++) await sleep(250)
-  if (clientProvider.getClients().length === 0) {
-    log('HOST: no Lean client yet. Open a Lean file in the shared project on the host. Will resolve lazily.')
-  } else {
-    log(`HOST: ${clientProvider.getClients().length} Lean client(s) available.`)
+  // Expose the port to remote guests (no-op/redundant for same-machine guests,
+  // which reach localhost:port directly). shareServer has no allowlist gate.
+  let serverShare: vscode.Disposable | undefined
+  try {
+    serverShare = await api.shareServer({ port, displayName: SHARED_SERVER_NAME })
+    log(`HOST: shared server port ${port} to guests.`)
+  } catch (e) {
+    log(`HOST: shareServer failed (${describe(e)}); same-machine guests will still work.`)
   }
 
   const toLocal = (s: string) => safeConvert(() => api.convertSharedUriToLocal(vscode.Uri.parse(s)).toString(), s)
   const toShared = (s: string) => safeConvert(() => api.convertLocalUriToShared(vscode.Uri.parse(s)).toString(), s)
-
   const adapter = adaptLeanClient(() => clientProvider.getClients()[0], log)
-  const channel = makeUriTranslatingHostChannel(createHostChannel(service), { incoming: toLocal, outgoing: toShared })
-  const bridge = new LeanBridgeHost(channel, adapter, { log })
+
+  // Accept guest connections; one bridge per connection (supports multiple guests).
+  const bridges = new Set<LeanBridgeHost>()
+  let accepting = true
+  const accept = async () => {
+    while (accepting) {
+      let conn
+      try {
+        conn = await wsHost.nextConnection()
+      } catch {
+        break
+      }
+      if (!accepting) break
+      log('HOST: guest connected to bridge.')
+      const channel = makeUriTranslatingHostChannel(conn, { incoming: toLocal, outgoing: toShared })
+      const bridge = new LeanBridgeHost(channel, adapter, { log })
+      bridges.add(bridge)
+    }
+  }
+  void accept()
   log('HOST: bridge is live; guests can now open the Lean infoview.')
 
   return {
     dispose: () => {
-      bridge.dispose()
-      void api.unshareService(SERVICE_NAME)
-      log('HOST: bridge disposed, service unshared.')
+      accepting = false
+      for (const b of bridges) b.dispose()
+      bridges.clear()
+      serverShare?.dispose()
+      void wsHost.close()
+      log('HOST: bridge disposed.')
     },
   }
 }
