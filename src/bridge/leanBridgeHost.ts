@@ -86,6 +86,8 @@ export class LeanBridgeHost {
     this.on(BridgeMethod.unsubscribeClientNotifications, async () => null)
 
     this.on(BridgeMethod.getServerInitializeResult, async () => this.client.getInitializeResult() ?? null)
+
+    this.on(BridgeMethod.getDiagnostics, async () => this.client.getDiagnostics())
   }
 
   private on(method: string, handler: (params: any) => Promise<unknown>) {

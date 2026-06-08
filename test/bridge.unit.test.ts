@@ -42,6 +42,10 @@ class StubLeanClient implements LeanClientLike {
   getInitializeResult() {
     return { serverInfo: { name: 'Stub', version: '9.9.9' }, capabilities: { experimental: { rpcProvider: {} } } }
   }
+  diagnosticsForUri: Array<{ uri: string; diagnostics: unknown[] }> = []
+  getDiagnostics() {
+    return this.diagnosticsForUri
+  }
   emit(method: string, params: unknown) {
     for (const h of [...(this.handlers.get(method) ?? [])]) h(params)
   }

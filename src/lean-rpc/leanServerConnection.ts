@@ -170,6 +170,11 @@ export class LeanServerConnection {
     return { serverInfo: this.initializeResult.serverInfo, capabilities: this.initializeResult.capabilities }
   }
 
+  /** Current tracked diagnostics per uri (for `LeanClientLike`). Requires `trackDiagnostics()`. */
+  getDiagnostics(): Array<{ uri: string; diagnostics: unknown[] }> {
+    return [...this.latestDiagnostics.entries()].map(([uri, diagnostics]) => ({ uri, diagnostics }))
+  }
+
   openTextDocument(uri: string, text: string, languageId = 'lean4', version = 1): void {
     this.connection.sendNotification('textDocument/didOpen', {
       textDocument: { uri, languageId, version, text },

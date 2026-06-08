@@ -78,6 +78,9 @@ class StubLeanClient implements LeanClientLike {
   getInitializeResult() {
     return { serverInfo: { name: 'Lean 4 Server', version: '0.3.0' }, capabilities: { experimental: { rpcProvider: {} } } }
   }
+  getDiagnostics() {
+    return [{ uri: 'vsls:/x.lean', diagnostics: [{ range: { start: { line: 16, character: 0 } }, leanTags: [2] }] }]
+  }
   emit(method: string, params: unknown) {
     for (const h of [...(this.handlers.get(method) ?? [])]) h(params)
   }
@@ -104,6 +107,12 @@ test('LiveShareChannel: full guest<->host round-trip over mock vsls', async t =>
   await t.test('request: getServerInitializeResult crosses the channel', async () => {
     const init = await guest.getServerInitializeResult()
     assert.equal(init?.serverInfo?.version, '0.3.0')
+  })
+
+  await t.test('request: getDiagnostics (with leanTags) crosses the channel', async () => {
+    const diags = await guest.getDiagnostics()
+    assert.equal(diags.length, 1)
+    assert.deepEqual((diags[0].diagnostics[0] as { leanTags: number[] }).leanTags, [2])
   })
 
   await t.test('host -> guest notification is delivered via notify/onNotify', async () => {

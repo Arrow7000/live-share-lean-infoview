@@ -50,12 +50,21 @@ export interface ServerInitializeResultLike {
   capabilities?: unknown
 }
 
+/** A `textDocument/publishDiagnostics`-shaped payload (Lean's enriched form). */
+export interface DiagnosticsForUri {
+  uri: string
+  diagnostics: unknown[]
+  version?: number
+}
+
 export interface LeanClientLike {
   sendRequest<T = unknown>(method: string, params: unknown): Promise<T>
   sendNotification(method: string, params: unknown): void | Promise<void>
   onServerNotification(method: string, handler: (params: unknown) => void): Disposable
   /** The server's `initialize` result (capabilities + serverInfo), if known. */
   getInitializeResult(): ServerInitializeResultLike | undefined
+  /** Current diagnostics (with Lean's `leanTags`) for replay to a freshly-joined guest. */
+  getDiagnostics(): DiagnosticsForUri[]
 }
 
 /** Bridge request methods — a 1:1 image of the infoview's `EditorApi`. */
@@ -70,6 +79,8 @@ export const BridgeMethod = {
   unsubscribeClientNotifications: 'editor/unsubscribeClientNotifications', // { method }
   /** Guest -> host: fetch the server's initialize result so the infoview can start. */
   getServerInitializeResult: 'host/getServerInitializeResult', // {} -> ServerInitializeResultLike | null
+  /** Guest -> host: fetch current diagnostics (for initial gutter/messages on join). */
+  getDiagnostics: 'host/getDiagnostics', // {} -> DiagnosticsForUri[]
 } as const
 
 /** Bridge notifications (host -> guest). */

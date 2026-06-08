@@ -2,6 +2,7 @@ import {
   type BridgeChannel,
   BridgeMethod,
   BridgeNotification,
+  type DiagnosticsForUri,
   type Disposable,
   type NotifyHandler,
   type ServerInitializeResultLike,
@@ -58,6 +59,11 @@ export class GuestEditorClient {
   async getServerInitializeResult(): Promise<ServerInitializeResultLike | undefined> {
     const result = await this.channel.request(BridgeMethod.getServerInitializeResult, {})
     return (result ?? undefined) as ServerInitializeResultLike | undefined
+  }
+
+  async getDiagnostics(): Promise<DiagnosticsForUri[]> {
+    const result = await this.channel.request(BridgeMethod.getDiagnostics, {})
+    return (result ?? []) as DiagnosticsForUri[]
   }
 
   /** Register a local handler for a forwarded server notification. */

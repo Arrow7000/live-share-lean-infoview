@@ -116,6 +116,22 @@ export async function startGuestRole(
     if (live) sendLoc(lastLoc)
   }
 
+  // Pull the host's current diagnostics and replay them so the gutter checkmarks
+  // and the infoview's messages are correct immediately on join / panel (re)open,
+  // before the live subscription delivers the next update.
+  const replayDiagnostics = async () => {
+    let initial: Awaited<ReturnType<typeof guestClient.getDiagnostics>>
+    try {
+      initial = await guestClient.getDiagnostics()
+    } catch {
+      return
+    }
+    for (const d of initial) {
+      gutter.update(d as { uri: string; diagnostics?: { range: any; leanTags?: number[] }[] })
+      if (infoviewHost) void infoviewHost.infoview.gotServerNotification(PUBLISH_DIAGNOSTICS, d)
+    }
+  }
+
   // (Re)drive the current panel from scratch: announce the server, then push the
   // current Lean location (a fresh panel needs `initialize`, not a cursor change).
   const drivePanel = async () => {
@@ -124,6 +140,7 @@ export async function startGuestRole(
     initialized = false
     onCursor(vscode.window.activeTextEditor)
     if (lastLoc) sendLoc(lastLoc)
+    void replayDiagnostics()
   }
 
   // Open the infoview panel (or reveal it if already open). Safe to call from the
