@@ -1,7 +1,12 @@
 node_modules/
 dist/
+dist-test/
 out/
 *.log
+
+# VS Code extension build output / test runner artifacts
+extension/media/
+.vscode-test/
 
 # Cloned upstream sources, kept locally for reference only
 reference/

@@ -1,0 +1,50 @@
+{
+  "name": "lean4-live-share-infoview",
+  "displayName": "Lean 4 Infoview for Live Share",
+  "description": "Companion extension that makes the Lean 4 Infoview work for Live Share guests.",
+  "version": "0.0.1",
+  "publisher": "live-share-lean-infoview",
+  "private": true,
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionDependencies": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "leanLiveShare.openInfoview",
+        "title": "Lean Live Share: Open Guest Infoview"
+      },
+      {
+        "command": "leanLiveShare.showLog",
+        "title": "Lean Live Share: Show Log"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p ./ --noEmit",
+    "pretest": "node esbuild.mjs && tsc -p ./ --noEmit",
+    "test": "node ./dist-test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.86.0",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@leanprover/infoview": "^0.13.0",
+    "@leanprover/infoview-api": "^0.13.0",
+    "vsls": "^1.0.4753"
+  }
+}
