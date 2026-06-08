@@ -1,0 +1,13 @@
+# Source & build inputs (the runtime is the bundled dist/ + media/).
+node_modules/**
+src/**
+webview/**
+test/**
+dist-test/**
+.vscode-test/**
+**/*.ts
+**/*.map
+esbuild.mjs
+tsconfig.json
+package-lock.json
+*.vsix

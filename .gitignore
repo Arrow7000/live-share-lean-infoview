@@ -7,6 +7,7 @@ out/
 # VS Code extension build output / test runner artifacts
 extension/media/
 .vscode-test/
+*.vsix
 
 # Cloned upstream sources, kept locally for reference only
 reference/
