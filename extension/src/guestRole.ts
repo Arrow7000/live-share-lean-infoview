@@ -11,7 +11,10 @@ const LEAN_LANGUAGES = new Set(['lean', 'lean4'])
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
 function isLeanDoc(doc: vscode.TextDocument): boolean {
-  return LEAN_LANGUAGES.has(doc.languageId)
+  // Accept by URI suffix too: on a Live Share guest the `vsls:` document may not
+  // have the `lean4` language id assigned yet (the lean4 extension activates
+  // lazily), but its path still ends in `.lean`.
+  return LEAN_LANGUAGES.has(doc.languageId) || doc.uri.path.endsWith('.lean')
 }
 
 function locationOf(editor: vscode.TextEditor): Location {
@@ -73,13 +76,15 @@ export async function startGuestRole(
   // "Waiting for Lean server..." until the bridge becomes available).
   infoviewHost = createInfoviewPanel(context, editorApi, log, { title: 'Lean Infoview (Live Share guest)' })
 
-  // Drive the cursor → infoview loop from the guest's selection (debounced).
+  // Track the latest Lean cursor location regardless of `live` (so clicks made
+  // while we're still fetching the server's init result aren't lost), then flush
+  // it to the infoview once we're live and on every subsequent move.
   let live = false
   let initialized = false
+  let lastLoc: Location | undefined
   let timer: NodeJS.Timeout | undefined
-  const pushCursor = (editor: vscode.TextEditor | undefined) => {
-    if (!live || !editor || !isLeanDoc(editor.document)) return
-    const loc = locationOf(editor)
+
+  const sendLoc = (loc: Location) => {
     clearTimeout(timer)
     timer = setTimeout(() => {
       if (!initialized) {
@@ -89,7 +94,14 @@ export async function startGuestRole(
       } else {
         void infoviewHost?.infoview.changedCursorLocation(loc)
       }
-    }, 100)
+    }, 80)
+  }
+
+  const onCursor = (editor: vscode.TextEditor | undefined) => {
+    if (!editor) return
+    if (!isLeanDoc(editor.document)) return
+    lastLoc = locationOf(editor)
+    if (live) sendLoc(lastLoc)
   }
 
   // Start the infoview session: fetch the server's initialize result (retrying,
@@ -117,14 +129,19 @@ export async function startGuestRole(
     } else {
       log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
     }
-    pushCursor(vscode.window.activeTextEditor)
+    // Flush whatever Lean location we already have (captured before going live),
+    // else grab the active editor now.
+    onCursor(vscode.window.activeTextEditor)
+    if (lastLoc) sendLoc(lastLoc)
   }
 
   const subs: vscode.Disposable[] = [
-    vscode.window.onDidChangeTextEditorSelection(e => pushCursor(e.textEditor)),
-    vscode.window.onDidChangeActiveTextEditor(editor => pushCursor(editor)),
+    vscode.window.onDidChangeTextEditorSelection(e => onCursor(e.textEditor)),
+    vscode.window.onDidChangeActiveTextEditor(editor => onCursor(editor)),
   ]
 
+  // Seed from the currently active editor (it's likely the shared .lean file).
+  onCursor(vscode.window.activeTextEditor)
   void goLive()
 
   return {
