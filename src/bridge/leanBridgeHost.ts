@@ -84,6 +84,8 @@ export class LeanBridgeHost {
     // and ignore for now (the real LeanClient exposes `didChange` for these).
     this.on(BridgeMethod.subscribeClientNotifications, async () => null)
     this.on(BridgeMethod.unsubscribeClientNotifications, async () => null)
+
+    this.on(BridgeMethod.getServerInitializeResult, async () => this.client.getInitializeResult() ?? null)
   }
 
   private on(method: string, handler: (params: any) => Promise<unknown>) {

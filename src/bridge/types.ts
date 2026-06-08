@@ -45,10 +45,17 @@ export interface BridgeChannel {
  * `LeanServerConnection` satisfy this, so the bridge is testable against a real
  * Lean server without VS Code.
  */
+export interface ServerInitializeResultLike {
+  serverInfo?: { name?: string; version?: string }
+  capabilities?: unknown
+}
+
 export interface LeanClientLike {
   sendRequest<T = unknown>(method: string, params: unknown): Promise<T>
   sendNotification(method: string, params: unknown): void | Promise<void>
   onServerNotification(method: string, handler: (params: unknown) => void): Disposable
+  /** The server's `initialize` result (capabilities + serverInfo), if known. */
+  getInitializeResult(): ServerInitializeResultLike | undefined
 }
 
 /** Bridge request methods — a 1:1 image of the infoview's `EditorApi`. */
@@ -61,6 +68,8 @@ export const BridgeMethod = {
   unsubscribeServerNotifications: 'editor/unsubscribeServerNotifications', // { method }
   subscribeClientNotifications: 'editor/subscribeClientNotifications', // { method }
   unsubscribeClientNotifications: 'editor/unsubscribeClientNotifications', // { method }
+  /** Guest -> host: fetch the server's initialize result so the infoview can start. */
+  getServerInitializeResult: 'host/getServerInitializeResult', // {} -> ServerInitializeResultLike | null
 } as const
 
 /** Bridge notifications (host -> guest). */

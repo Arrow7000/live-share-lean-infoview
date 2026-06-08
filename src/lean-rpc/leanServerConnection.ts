@@ -164,6 +164,12 @@ export class LeanServerConnection {
     return this.connection.onNotification(method, handler)
   }
 
+  /** The server's initialize result (for `LeanClientLike`). */
+  getInitializeResult(): { serverInfo?: { name?: string; version?: string }; capabilities?: unknown } | undefined {
+    if (!this.initializeResult) return undefined
+    return { serverInfo: this.initializeResult.serverInfo, capabilities: this.initializeResult.capabilities }
+  }
+
   openTextDocument(uri: string, text: string, languageId = 'lean4', version = 1): void {
     this.connection.sendNotification('textDocument/didOpen', {
       textDocument: { uri, languageId, version, text },

@@ -4,6 +4,7 @@ import {
   BridgeNotification,
   type Disposable,
   type NotifyHandler,
+  type ServerInitializeResultLike,
   type ServerNotificationPayload,
 } from './types.js'
 
@@ -52,6 +53,11 @@ export class GuestEditorClient {
 
   async unsubscribeServerNotifications(method: string): Promise<void> {
     await this.channel.request(BridgeMethod.unsubscribeServerNotifications, { method })
+  }
+
+  async getServerInitializeResult(): Promise<ServerInitializeResultLike | undefined> {
+    const result = await this.channel.request(BridgeMethod.getServerInitializeResult, {})
+    return (result ?? undefined) as ServerInitializeResultLike | undefined
   }
 
   /** Register a local handler for a forwarded server notification. */

@@ -39,6 +39,9 @@ class StubLeanClient implements LeanClientLike {
     set.add(handler)
     return { dispose: () => set!.delete(handler) }
   }
+  getInitializeResult() {
+    return { serverInfo: { name: 'Stub', version: '9.9.9' }, capabilities: { experimental: { rpcProvider: {} } } }
+  }
   emit(method: string, params: unknown) {
     for (const h of [...(this.handlers.get(method) ?? [])]) h(params)
   }
@@ -153,6 +156,23 @@ for (const [name, makePair] of transports) {
       await new Promise(r => setTimeout(r, 60))
       assert.equal(client.notifications.length, before, 'keepalive should stop after dispose')
 
+      editor.dispose()
+      await cleanup()
+    })
+
+    test('guest can fetch the server initialize result', async () => {
+      const { host, guest, cleanup } = await makePair()
+      const client = new StubLeanClient()
+      const bridge = new LeanBridgeHost(host, client)
+      const editor = new GuestEditorClient(guest)
+
+      const init = await editor.getServerInitializeResult()
+      assert.deepEqual(init, {
+        serverInfo: { name: 'Stub', version: '9.9.9' },
+        capabilities: { experimental: { rpcProvider: {} } },
+      })
+
+      bridge.dispose()
       editor.dispose()
       await cleanup()
     })
