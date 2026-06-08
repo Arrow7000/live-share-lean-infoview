@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "test:m1": "node --import tsx --test test/lean-rpc.integration.test.ts",
-    "spike:m1": "tsx src/lean-rpc/m1-spike.ts"
+    "spike:m1": "tsx src/lean-rpc/m1-spike.ts",
+    "capture:golden": "tsx src/lean-rpc/captureGolden.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

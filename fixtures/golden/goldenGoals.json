@@ -1,0 +1,253 @@
+{
+  "uri": "file:///Users/aron/dev/live-share-lean-infoview/fixtures/lean-fixture/Fixture.lean",
+  "position": {
+    "line": 17,
+    "character": 2
+  },
+  "location": {
+    "uri": "file:///Users/aron/dev/live-share-lean-infoview/fixtures/lean-fixture/Fixture.lean",
+    "range": {
+      "start": {
+        "line": 17,
+        "character": 2
+      },
+      "end": {
+        "line": 17,
+        "character": 2
+      }
+    }
+  },
+  "initializeResult": {
+    "serverInfo": {
+      "name": "Lean 4 Server",
+      "version": "0.3.0"
+    },
+    "capabilities": {
+      "callHierarchyProvider": true,
+      "codeActionProvider": {
+        "codeActionKinds": [
+          "quickfix",
+          "refactor",
+          "source.organizeImports"
+        ],
+        "resolveProvider": true,
+        "workDoneProgress": false
+      },
+      "colorProvider": {
+        "workDoneProgress": false
+      },
+      "completionProvider": {
+        "resolveProvider": true,
+        "triggerCharacters": [
+          "."
+        ]
+      },
+      "declarationProvider": true,
+      "definitionProvider": true,
+      "documentHighlightProvider": true,
+      "documentSymbolProvider": true,
+      "experimental": {
+        "moduleHierarchyProvider": {},
+        "rpcProvider": {
+          "highlightMatchesProvider": {},
+          "rpcWireFormat": "v1"
+        }
+      },
+      "foldingRangeProvider": true,
+      "hoverProvider": true,
+      "inlayHintProvider": {
+        "resolveProvider": false,
+        "workDoneProgress": false
+      },
+      "referencesProvider": true,
+      "renameProvider": {
+        "prepareProvider": true
+      },
+      "semanticTokensProvider": {
+        "full": true,
+        "legend": {
+          "tokenModifiers": [
+            "declaration",
+            "definition",
+            "readonly",
+            "static",
+            "deprecated",
+            "abstract",
+            "async",
+            "modification",
+            "documentation",
+            "defaultLibrary"
+          ],
+          "tokenTypes": [
+            "keyword",
+            "variable",
+            "property",
+            "function",
+            "namespace",
+            "type",
+            "class",
+            "enum",
+            "interface",
+            "struct",
+            "typeParameter",
+            "parameter",
+            "enumMember",
+            "event",
+            "method",
+            "macro",
+            "modifier",
+            "comment",
+            "string",
+            "number",
+            "regexp",
+            "operator",
+            "decorator",
+            "leanSorryLike"
+          ]
+        },
+        "range": true
+      },
+      "signatureHelpProvider": {
+        "triggerCharacters": [
+          " "
+        ],
+        "workDoneProgress": false
+      },
+      "textDocumentSync": {
+        "change": 2,
+        "openClose": true,
+        "save": {
+          "includeText": true
+        },
+        "willSave": false,
+        "willSaveWaitUntil": false
+      },
+      "typeDefinitionProvider": true,
+      "workspaceSymbolProvider": true
+    }
+  },
+  "goals": {
+    "goals": [
+      {
+        "ctx": {
+          "p": "6"
+        },
+        "goalPrefix": "⊢ ",
+        "hyps": [
+          {
+            "fvarIds": [
+              "_uniq.11.2",
+              "_uniq.11.3"
+            ],
+            "isType": true,
+            "names": [
+              "p",
+              "q"
+            ],
+            "type": {
+              "tag": [
+                {
+                  "info": {
+                    "p": "0"
+                  },
+                  "subexprPos": "/"
+                },
+                {
+                  "text": "Prop"
+                }
+              ]
+            }
+          },
+          {
+            "fvarIds": [
+              "_uniq.11.4"
+            ],
+            "names": [
+              "hp"
+            ],
+            "type": {
+              "tag": [
+                {
+                  "info": {
+                    "p": "1"
+                  },
+                  "subexprPos": "/"
+                },
+                {
+                  "text": "p"
+                }
+              ]
+            }
+          },
+          {
+            "fvarIds": [
+              "_uniq.11.5"
+            ],
+            "names": [
+              "hq"
+            ],
+            "type": {
+              "tag": [
+                {
+                  "info": {
+                    "p": "2"
+                  },
+                  "subexprPos": "/"
+                },
+                {
+                  "text": "q"
+                }
+              ]
+            }
+          }
+        ],
+        "isRemoved": true,
+        "mvarId": "_uniq.11.6",
+        "type": {
+          "tag": [
+            {
+              "info": {
+                "p": "3"
+              },
+              "subexprPos": "/"
+            },
+            {
+              "append": [
+                {
+                  "tag": [
+                    {
+                      "info": {
+                        "p": "4"
+                      },
+                      "subexprPos": "/0/1"
+                    },
+                    {
+                      "text": "p"
+                    }
+                  ]
+                },
+                {
+                  "text": " ∧ "
+                },
+                {
+                  "tag": [
+                    {
+                      "info": {
+                        "p": "5"
+                      },
+                      "subexprPos": "/1"
+                    },
+                    {
+                      "text": "q"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "termGoal": null
+}
