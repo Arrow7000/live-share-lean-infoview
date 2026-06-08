@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import * as vsls from 'vsls'
+import { registerAutoUpdate } from './autoUpdate.js'
 import { startGuestRole, type GuestRoleSession } from './guestRole.js'
 import { startHostRole } from './hostRole.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
@@ -17,6 +18,8 @@ export async function activate(context: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel('Lean Live Share')
   context.subscriptions.push(output)
   log('activated')
+
+  registerAutoUpdate(context, log)
 
   void setupLiveShare(context).catch(e => log(`Live Share setup failed: ${describe(e)}`))
 
