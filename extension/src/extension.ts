@@ -1,4 +1,7 @@
 import * as vscode from 'vscode'
+import * as vsls from 'vsls'
+import { startGuestRole } from './guestRole.js'
+import { startHostRole } from './hostRole.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
 import { createReplayEditorApi, type GoldenGoals } from './replayEditor.js'
 
@@ -12,12 +15,15 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(output)
   log('activated')
 
+  void setupLiveShare(context).catch(e => log(`Live Share setup failed: ${describe(e)}`))
+
   context.subscriptions.push(
     vscode.commands.registerCommand('leanLiveShare.showLog', () => output.show(true)),
     vscode.commands.registerCommand('leanLiveShare.openInfoview', async () => {
       vscode.window.showInformationMessage(
-        'Lean Live Share: the guest infoview activates automatically when you join a Live Share session as a guest (wiring lands in M4).',
+        'Lean Live Share: the guest infoview opens automatically when you join a session as a guest. See the "Lean Live Share" output channel for status.',
       )
+      output.show(true)
     }),
     // Hidden command used by the @vscode/test-electron render smoke test. Given a
     // captured golden payload, renders it in the real infoview webview and returns
@@ -46,6 +52,43 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
   )
+}
+
+/** Watch the Live Share session and (re)wire the host or guest role on changes. */
+async function setupLiveShare(context: vscode.ExtensionContext) {
+  const api = await vsls.getApi(context.extension?.id ?? 'live-share-lean-infoview.lean4-live-share-infoview')
+  if (!api) {
+    log('Live Share extension not installed/available; guest infoview is inactive.')
+    return
+  }
+  log('acquired Live Share API.')
+
+  let roleSession: vscode.Disposable | undefined
+  let currentRole: vsls.Role = vsls.Role.None
+
+  const applyRole = async (role: vsls.Role) => {
+    if (role === currentRole) return
+    log(`session role: ${vsls.Role[currentRole]} -> ${vsls.Role[role]}`)
+    currentRole = role
+    roleSession?.dispose()
+    roleSession = undefined
+    try {
+      if (role === vsls.Role.Host) roleSession = await startHostRole(api, log)
+      else if (role === vsls.Role.Guest) roleSession = await startGuestRole(context, api, log)
+    } catch (e) {
+      log(`failed to start ${vsls.Role[role]} role: ${describe(e)}`)
+    }
+  }
+
+  context.subscriptions.push(
+    api.onDidChangeSession(e => void applyRole(e.session.role)),
+    { dispose: () => roleSession?.dispose() },
+  )
+  await applyRole(api.session.role)
+}
+
+function describe(e: unknown): string {
+  return e instanceof Error ? `${e.name}: ${e.message}` : String(e)
 }
 
 export function deactivate() {}
