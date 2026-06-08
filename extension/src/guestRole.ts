@@ -4,8 +4,11 @@ import { GuestEditorClient } from '../../src/bridge/guestEditorClient.js'
 import { connectWebSocketGuest, type WebSocketChannel } from '../../src/bridge/webSocketChannel.js'
 import type { Location } from '../../src/infoview/api.js'
 import { createGuestEditorApi } from '../../src/infoview/guestEditorApi.js'
+import { GoalsAccomplishedGutter } from './goalsAccomplishedGutter.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
 import { portForSession } from './protocol.js'
+
+const PUBLISH_DIAGNOSTICS = 'textDocument/publishDiagnostics'
 
 const LEAN_LANGUAGES = new Set(['lean', 'lean4'])
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
@@ -67,6 +70,13 @@ export async function startGuestRole(
   log('GUEST: connected to bridge.')
 
   const guestClient = new GuestEditorClient(channel)
+
+  // Render the blue "goals accomplished" gutter checkmark from forwarded Lean
+  // diagnostics (independent of the infoview panel).
+  const gutter = new GoalsAccomplishedGutter(context.extensionUri)
+  guestClient.onServerNotification(PUBLISH_DIAGNOSTICS, params =>
+    gutter.update(params as { uri: string; diagnostics?: { range: any; leanTags?: number[] }[] }),
+  )
 
   let infoviewHost: InfoviewHost | undefined
   const editorApi = createGuestEditorApi(guestClient, {
@@ -153,6 +163,13 @@ export async function startGuestRole(
     live = true
     if (init) log(`GUEST: server up (version ${init.serverInfo?.version}). Move the cursor into a proof.`)
     else log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
+    // Forward Lean diagnostics so the "goals accomplished" gutter can render.
+    // (Already-proven files only get a checkmark once diagnostics next update.)
+    try {
+      await guestClient.subscribeServerNotifications(PUBLISH_DIAGNOSTICS)
+    } catch (e) {
+      log(`GUEST: failed to subscribe to diagnostics: ${e instanceof Error ? e.message : String(e)}`)
+    }
     await drivePanel()
   }
 
@@ -172,6 +189,7 @@ export async function startGuestRole(
       disposed = true
       clearTimeout(timer)
       for (const s of subs) s.dispose()
+      gutter.dispose()
       editorApi.dispose()
       guestClient.dispose()
       channel.dispose()
