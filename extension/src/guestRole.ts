@@ -23,6 +23,11 @@ function locationOf(editor: vscode.TextEditor): Location {
   return { uri: editor.document.uri.toString(), range: { start: pos, end: pos } }
 }
 
+export interface GuestRoleSession extends vscode.Disposable {
+  /** Reopen the infoview panel (or reveal it) — backs the openInfoview command. */
+  openInfoview?: () => void
+}
+
 /**
  * Wire the guest side: connect to the host's shared service, open the infoview
  * webview backed by the bridge, and drive it from the guest's cursor in the
@@ -32,7 +37,7 @@ export async function startGuestRole(
   context: vscode.ExtensionContext,
   api: vsls.LiveShare,
   log: (s: string) => void,
-): Promise<vscode.Disposable> {
+): Promise<GuestRoleSession> {
   const sessionId = api.session.id
   if (!sessionId) {
     log('GUEST: no session id yet; cannot connect to the bridge.')
@@ -72,10 +77,6 @@ export async function startGuestRole(
     log,
   })
 
-  // Open the panel immediately so the user sees the infoview (it shows
-  // "Waiting for Lean server..." until the bridge becomes available).
-  infoviewHost = createInfoviewPanel(context, editorApi, log, { title: 'Lean Infoview (Live Share guest)' })
-
   // Track the latest Lean cursor location regardless of `live` (so clicks made
   // while we're still fetching the server's init result aren't lost), then flush
   // it to the infoview once we're live and on every subsequent move.
@@ -83,6 +84,7 @@ export async function startGuestRole(
   let initialized = false
   let lastLoc: Location | undefined
   let timer: NodeJS.Timeout | undefined
+  let serverInit: Awaited<ReturnType<typeof guestClient.getServerInitializeResult>>
 
   const sendLoc = (loc: Location) => {
     clearTimeout(timer)
@@ -104,12 +106,37 @@ export async function startGuestRole(
     if (live) sendLoc(lastLoc)
   }
 
-  // Start the infoview session: fetch the server's initialize result (retrying,
-  // since the host's Lean server may still be starting), tell the infoview the
-  // server is up, then begin driving the cursor.
+  // (Re)drive the current panel from scratch: announce the server, then push the
+  // current Lean location (a fresh panel needs `initialize`, not a cursor change).
+  const drivePanel = async () => {
+    if (!infoviewHost || !live) return
+    if (serverInit) await infoviewHost.infoview.serverRestarted(serverInit as never)
+    initialized = false
+    onCursor(vscode.window.activeTextEditor)
+    if (lastLoc) sendLoc(lastLoc)
+  }
+
+  // Open the infoview panel (or reveal it if already open). Safe to call from the
+  // `leanLiveShare.openInfoview` command after the user closes the panel.
+  const openInfoview = () => {
+    if (infoviewHost) {
+      infoviewHost.panel.reveal(undefined, true)
+      return
+    }
+    infoviewHost = createInfoviewPanel(context, editorApi, log, { title: 'Lean Infoview (Live Share guest)' })
+    infoviewHost.panel.onDidDispose(() => {
+      log('GUEST: infoview panel closed (reopen with "Lean Live Share: Open Guest Infoview").')
+      infoviewHost = undefined
+      initialized = false
+    })
+    void drivePanel()
+  }
+
+  // Start the session: fetch the server's initialize result (retrying, since the
+  // host's Lean server may still be starting), then drive the panel.
   const goLive = async () => {
     if (live) return
-    let init
+    let init: typeof serverInit
     for (let i = 0; i < 60 && !disposed; i++) {
       try {
         init = await guestClient.getServerInitializeResult()
@@ -122,17 +149,11 @@ export async function startGuestRole(
       await sleep(1000)
     }
     if (disposed) return
+    serverInit = init
     live = true
-    if (init) {
-      await infoviewHost!.infoview.serverRestarted(init as never)
-      log(`GUEST: serverRestarted (version ${init.serverInfo?.version}). Move the cursor into a proof.`)
-    } else {
-      log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
-    }
-    // Flush whatever Lean location we already have (captured before going live),
-    // else grab the active editor now.
-    onCursor(vscode.window.activeTextEditor)
-    if (lastLoc) sendLoc(lastLoc)
+    if (init) log(`GUEST: server up (version ${init.serverInfo?.version}). Move the cursor into a proof.`)
+    else log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
+    await drivePanel()
   }
 
   const subs: vscode.Disposable[] = [
@@ -140,11 +161,13 @@ export async function startGuestRole(
     vscode.window.onDidChangeActiveTextEditor(editor => onCursor(editor)),
   ]
 
-  // Seed from the currently active editor (it's likely the shared .lean file).
+  // Open the panel up front (shows "Waiting..." until live), seed the cursor.
+  openInfoview()
   onCursor(vscode.window.activeTextEditor)
   void goLive()
 
   return {
+    openInfoview,
     dispose: () => {
       disposed = true
       clearTimeout(timer)

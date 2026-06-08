@@ -1,12 +1,15 @@
 import * as vscode from 'vscode'
 import * as vsls from 'vsls'
-import { startGuestRole } from './guestRole.js'
+import { startGuestRole, type GuestRoleSession } from './guestRole.js'
 import { startHostRole } from './hostRole.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
 import { createReplayEditorApi, type GoldenGoals } from './replayEditor.js'
 
 let output: vscode.OutputChannel
 const log = (line: string) => output?.appendLine(`[${new Date().toISOString()}] ${line}`)
+
+/** The active guest session, if we're a guest. Used by the openInfoview command. */
+let activeGuest: GuestRoleSession | undefined
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
 
@@ -20,8 +23,12 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('leanLiveShare.showLog', () => output.show(true)),
     vscode.commands.registerCommand('leanLiveShare.openInfoview', async () => {
+      if (activeGuest?.openInfoview) {
+        activeGuest.openInfoview()
+        return
+      }
       vscode.window.showInformationMessage(
-        'Lean Live Share: the guest infoview opens automatically when you join a session as a guest. See the "Lean Live Share" output channel for status.',
+        'Lean Live Share: the guest infoview opens automatically when you join a Live Share session as a guest. See the "Lean Live Share" output channel for status.',
       )
       output.show(true)
     }),
@@ -72,9 +79,15 @@ async function setupLiveShare(context: vscode.ExtensionContext) {
     currentRole = role
     roleSession?.dispose()
     roleSession = undefined
+    activeGuest = undefined
     try {
-      if (role === vsls.Role.Host) roleSession = await startHostRole(api, log)
-      else if (role === vsls.Role.Guest) roleSession = await startGuestRole(context, api, log)
+      if (role === vsls.Role.Host) {
+        roleSession = await startHostRole(api, log)
+      } else if (role === vsls.Role.Guest) {
+        const guest = await startGuestRole(context, api, log)
+        roleSession = guest
+        activeGuest = guest
+      }
     } catch (e) {
       log(`failed to start ${vsls.Role[role]} role: ${describe(e)}`)
     }
