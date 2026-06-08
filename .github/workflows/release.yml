@@ -1,0 +1,67 @@
+name: Release VSIX
+
+# Every push to main that touches the extension (or the bridge sources it
+# bundles) produces a fresh .vsix and publishes it as the "latest" GitHub
+# Release. The version is stamped `0.0.<unix-seconds>` so the newest build is
+# always the highest version — no manual versioning during alpha.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'extension/**'
+      - 'src/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-vsix
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root deps (bridge sources bundled into the extension)
+        run: npm ci
+
+      - name: Install extension deps
+        run: npm ci
+        working-directory: extension
+
+      - name: Stamp version
+        id: stamp
+        run: npm run --silent stamp:version
+        working-directory: extension
+
+      - name: Build extension
+        run: npm run build
+        working-directory: extension
+
+      - name: Package VSIX
+        run: npx vsce package --skip-license --out lean4-live-share-infoview.vsix
+        working-directory: extension
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.stamp.outputs.version }}
+          name: v${{ steps.stamp.outputs.version }} (alpha)
+          make_latest: "true"
+          body: |
+            Automated alpha build from commit `${{ github.sha }}`.
+
+            **Install:** download `lean4-live-share-infoview.vsix` below, then in
+            VS Code / Cursor run **Extensions: Install from VSIX…** and pick it.
+            Already installed? It auto-updates to newer builds on startup.
+          files: extension/lean4-live-share-infoview.vsix

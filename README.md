@@ -46,6 +46,28 @@ manual two-window test below.
 > If it ever fails, the bridge's `shareServer(port)` + `WebSocketChannel` path is
 > the fallback.
 
+## Install the extension (alpha)
+
+Distributed as a `.vsix` via **GitHub Releases** — no marketplace yet. Install it
+on **both** peers (host and guest).
+
+1. Grab `lean4-live-share-infoview.vsix` from the
+   [latest release](https://github.com/Arrow7000/live-share-lean-infoview/releases/latest).
+2. **Extensions: Install from VSIX…** (Command Palette), or
+   `code --install-extension lean4-live-share-infoview.vsix`.
+
+**Auto-update:** a side-loaded `.vsix` normally never updates itself (VS Code /
+Cursor only auto-update gallery extensions), so this extension does it manually:
+on startup it checks GitHub Releases and, if a newer build exists, downloads +
+installs it and offers a reload. Run **Lean Live Share: Check for Updates** to
+force a check, or set `leanLiveShare.autoUpdate.enabled: false` to disable.
+
+**How releases are cut:** [`.github/workflows/release.yml`](.github/workflows/release.yml)
+runs on every push to `main` (and via *Run workflow*): it builds, stamps the
+version `0.0.<unix-seconds>` (so the newest build is always the highest version —
+no manual semver during alpha), packages the `.vsix`, and publishes it as the
+"latest" release.
+
 ## Prerequisites
 
 - Node ≥ 22 (uses the built-in test runner; developed on v23).

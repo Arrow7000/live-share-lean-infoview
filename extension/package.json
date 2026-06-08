@@ -5,6 +5,10 @@
   "version": "0.0.1",
   "publisher": "live-share-lean-infoview",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Arrow7000/live-share-lean-infoview.git"
+  },
   "engines": {
     "vscode": "^1.86.0"
   },
@@ -25,13 +29,29 @@
       {
         "command": "leanLiveShare.showLog",
         "title": "Lean Live Share: Show Log"
+      },
+      {
+        "command": "leanLiveShare.checkForUpdates",
+        "title": "Lean Live Share: Check for Updates"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Lean Live Share",
+      "properties": {
+        "leanLiveShare.autoUpdate.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Check GitHub Releases for a newer build of this extension on startup and install it automatically. The most recently published release is always treated as the latest version."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc -p ./ --noEmit",
+    "stamp:version": "node scripts/stamp-version.mjs",
+    "package": "node esbuild.mjs && vsce package --skip-license --out lean4-live-share-infoview.vsix",
     "pretest": "node esbuild.mjs && tsc -p ./ --noEmit",
     "test": "node ./dist-test/runTest.js"
   },
@@ -39,6 +59,7 @@
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.86.0",
     "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.24.0",
     "typescript": "^5.7.2"
   },

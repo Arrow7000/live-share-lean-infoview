@@ -4,6 +4,7 @@ src/**
 webview/**
 test/**
 dist-test/**
+scripts/**
 .vscode-test/**
 **/*.ts
 **/*.map
