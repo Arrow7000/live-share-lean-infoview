@@ -78,6 +78,10 @@ export class LeanServerConnection {
     return this.initializeResult?.capabilities
   }
 
+  get serverInfo(): InitializeResult['serverInfo'] | undefined {
+    return this.initializeResult?.serverInfo
+  }
+
   /** Spawn the server, wire JSON-RPC, and complete the LSP initialize handshake. */
   async start(): Promise<InitializeResult> {
     const command = this.options.command ?? 'lake'
@@ -138,6 +142,25 @@ export class LeanServerConnection {
 
   /** Subscribe to a server notification (e.g. `$/lean/fileProgress`). */
   onNotification(method: string, handler: (params: unknown) => void) {
+    return this.connection.onNotification(method, handler)
+  }
+
+  // ---- Generic LSP passthrough -------------------------------------------
+  // These mirror the public surface of vscode-lean4's `LeanClient`, so this
+  // connection can stand in for a real `LeanClient` behind the host bridge.
+
+  /** Forward an arbitrary LSP request to the server. */
+  sendRequest<T = unknown>(method: string, params: unknown): Promise<T> {
+    return this.connection.sendRequest(method, params) as Promise<T>
+  }
+
+  /** Forward an arbitrary LSP notification to the server. */
+  async sendNotification(method: string, params: unknown): Promise<void> {
+    await this.connection.sendNotification(method, params)
+  }
+
+  /** Subscribe to a server->client notification by method name. */
+  onServerNotification(method: string, handler: (params: unknown) => void): { dispose(): void } {
     return this.connection.onNotification(method, handler)
   }
 

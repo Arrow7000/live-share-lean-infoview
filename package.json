@@ -13,11 +13,13 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },
   "dependencies": {
     "vscode-jsonrpc": "^8.2.1",
-    "vscode-languageserver-protocol": "^3.17.5"
+    "vscode-languageserver-protocol": "^3.17.5",
+    "ws": "^8.21.0"
   }
 }

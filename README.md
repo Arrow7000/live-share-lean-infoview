@@ -14,10 +14,20 @@ See `HANDOVER` (the originating design doc) for the full plan. This README track
 | --- | --- | --- |
 | M0 | Baseline repro (manual two-window smoke) | not started |
 | **M1** | **Headless host-RPC spike** | ✅ **done & green** |
-| M2 | Host bridge over fake transport (loopback / WebSocket) | not started |
+| **M0.5** | **`shareService` whitelist smoke test** (extension built; needs a manual two-window run) | ⏳ awaiting manual run |
+| **M2** | **Host bridge over fake transport (loopback / WebSocket)** | ✅ **done & green** |
 | M3 | Guest Infoview rendering | not started |
 | M4 | Real Live Share transport | not started |
 | M5 | Hardening | not started |
+
+> **M0.5 (why it exists):** [vscode-lean4#390](https://github.com/leanprover/vscode-lean4/issues/390)
+> has a maintainer comment suspecting Live Share's protocol extensibility is
+> whitelisted. Our approach only needs the *generic* `shareService` messaging
+> (not Live Share's native LSP relay), so `experiments/vsls-smoke/` is a tiny
+> throwaway that confirms a non-whitelisted extension can do a host↔guest
+> `shareService` round-trip. It needs a manual two-window run (see its README).
+> If it ever fails, the bridge's `shareServer(port)` + `WebSocketChannel` path is
+> the fallback.
 
 ## Prerequisites
 
@@ -49,13 +59,29 @@ fixtures/lean-fixture/      one-theorem Lean project with a deterministic goal
 src/lean-rpc/
   leanRpcTypes.ts           wire types + method-name constants + TaggedText flatten
   leanServerConnection.ts   headless LSP + custom-RPC client over a spawned server
+  fixtureServer.ts          shared: launch + elaborate the fixture, resolve goal pos
   m1-spike.ts               M1 orchestration (also a CLI)
-test/lean-rpc.integration.test.ts   M1 assertions
+src/bridge/                 the transport-agnostic bridge (M2)
+  types.ts                  BridgeChannel + LeanClientLike + bridge protocol
+  loopbackChannel.ts        in-process channel (JSON round-trips to mimic the wire)
+  webSocketChannel.ts       localhost socket channel (also prod via shareServer)
+  leanBridgeHost.ts         host side: relay rpc/*, own keepalive, fan out notifs
+  guestEditorClient.ts      guest side: EditorApi-shaped client over a channel
+experiments/vsls-smoke/     M0.5 throwaway: manual shareService two-window probe
+test/
+  lean-rpc.integration.test.ts   M1 (real server, custom RPC)
+  bridge.unit.test.ts            M2 logic, stub client, BOTH transports (fast)
+  bridge.loopback.test.ts        M2 real server behind bridge over loopback
+  bridge.websocket.test.ts       M2 real server behind bridge over sockets
+  support/driveGoals.ts          shared "show goals" driver
 reference/vscode-lean4/     upstream clone, read-only, git-ignored
 ```
 
-`leanServerConnection.ts` is deliberately reusable: the **host bridge** (M2) does
-the same thing — forward `$/lean/rpc/*` to a real Lean server and own keepalive.
+`leanServerConnection.ts` is deliberately reusable: the host bridge does the same
+thing — forward `$/lean/rpc/*` to a real Lean server and own keepalive. The host
+bridge depends only on `BridgeChannel` + `LeanClientLike`, so it runs identically
+over loopback, WebSocket, or (later) Live Share, and is fully testable with a real
+Lean server but no VS Code.
 
 ---
 
@@ -194,11 +220,11 @@ cross-extension name prefixing is needed.
 
 ---
 
-## Next steps (M2)
+## Next steps (M3)
 
-Define the `BridgeChannel` interface, implement `LoopbackChannel` + `WebSocketChannel`,
-and build the host bridge service against it — reusing `leanServerConnection.ts` for
-the real-server path. The host bridge handles: `connect`/`call`/`keepAlive`/`release`
-forwarding, per-guest keepalive ownership, server-notification fan-out
-(`$/lean/fileProgress`, diagnostics), and `vsls:`↔`file:` URI translation (deferred to
-M4 when real `vsls:` URIs appear).
+Re-host `@leanprover/infoview` in a webview and implement its `EditorApi` shim by
+delegating (across the webview↔extension-host postMessage hop) to
+`GuestEditorClient` over a `BridgeChannel`. Test with golden/replayed
+interactive-goals payloads (the visual layer is the lowest-risk part — it's the
+existing app — so a render smoke test is enough). Then M4 swaps in the real
+`LiveShareChannel` and adds `vsls:`↔`file:` URI translation.
