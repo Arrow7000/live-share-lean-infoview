@@ -65,22 +65,35 @@ export function adaptLeanClient(resolve: () => RealLeanClient | undefined, log: 
       return { serverInfo, capabilities }
     },
     getDiagnostics(): DiagnosticsForUri[] {
-      // Read current diagnostics from VS Code. lean4 attaches `leanTags`/`isSilent`/
-      // `fullRange` to the Diagnostic objects (converters.ts), and those survive in
-      // the extension host, so we can forward them for initial-state replay.
+      const client = resolve()
+      // Preferred source: lean4's own accumulated diagnostics store. These are the
+      // raw LSP-shaped params and crucially include the *silent* diagnostics
+      // (`GoalsAccomplished`) that lean4 filters OUT of VS Code's collection
+      // (see vscode-lean4 diagnostics.ts: it `.filter(d => !d.isSilent)` before
+      // setting vsCodeCollection). So `vscode.languages.getDiagnostics()` would
+      // never include the checkmark tag.
+      const collection = (client as unknown as { diagnosticCollection?: { diags?: Map<string, DiagnosticsForUri> } })
+        ?.diagnosticCollection
+      const diags = collection?.diags
+      if (diags && typeof diags.values === 'function') {
+        return [...diags.values()].map(p => ({ uri: p.uri, diagnostics: p.diagnostics ?? [] }))
+      }
+
+      // Fallback (only non-silent diagnostics): VS Code's collection. lean4 keeps
+      // leanTags on the Diagnostic objects, but silent ones (the checkmark) are absent.
+      log('getDiagnostics: lean4 diagnosticCollection.diags unavailable; falling back (no silent diagnostics)')
       const out: DiagnosticsForUri[] = []
-      for (const [u, diags] of vscode.languages.getDiagnostics()) {
+      for (const [u, ds] of vscode.languages.getDiagnostics()) {
         if (!u.path.endsWith('.lean')) continue
         out.push({
           uri: u.toString(),
-          diagnostics: diags.map(d => {
+          diagnostics: ds.map(d => {
             const ext = d as vscode.Diagnostic & { leanTags?: number[]; isSilent?: boolean; fullRange?: vscode.Range }
             return {
               range: lspRange(d.range),
               fullRange: ext.fullRange ? lspRange(ext.fullRange) : undefined,
               message: d.message,
-              // VS Code severities are 0-based; LSP severities are 1-based.
-              severity: (d.severity ?? 0) + 1,
+              severity: (d.severity ?? 0) + 1, // VS Code is 0-based; LSP is 1-based.
               leanTags: ext.leanTags,
               isSilent: ext.isSilent,
             }
