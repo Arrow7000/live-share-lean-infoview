@@ -16,3 +16,6 @@ reference/
 .lake/
 build/
 lakefile.olean
+
+# Isolated VS Code instances for the manual Live Share test
+.dev-instances/

@@ -76,26 +76,28 @@ npm test               # @vscode/test-electron render smoke test (downloads VS C
 ### Manual two-window end-to-end test (the only human step)
 
 Live Share needs an interactive sign-in, so the true host+guest path is checked
-by hand. It is a solo loop (one machine, join your own session). Watch the
-**"Lean Live Share"** output channel in both windows; the extension logs every
-step and forwards webview errors there.
+by hand. It is a solo loop on one machine. **Cursor can't run Live Share**, and
+two windows of the *same* VS Code share one instance/auth — so we use two
+**isolated** VS Code instances (each gets its own `--user-data-dir`, which is
+what makes them distinct processes).
 
-1. Build + package the extension:
-   ```bash
-   cd extension && npm run build
-   npx --yes @vscode/vsce package --allow-missing-repository -o lean4-live-share-infoview.vsix
-   ```
-2. Install it (and the **Live Share** extension, and **lean4** on the host) in both editors.
-   Host in Cursor, guest in stock VS Code keeps them distinct:
-   ```bash
-   cursor --install-extension lean4-live-share-infoview.vsix
-   code   --install-extension lean4-live-share-infoview.vsix
-   ```
-3. **Host:** open the `fixtures/lean-fixture` project (or any Lean project), open a
-   `.lean` file so the Lean server starts, then start a Live Share session.
-4. **Guest:** join the link, open the shared `.lean` file, and move the cursor into a
-   proof. The "Lean Infoview (Live Share guest)" panel should show the goal state.
-5. If something is off, run **Lean Live Share: Show Log** in both windows.
+```bash
+./scripts/dev-liveshare.sh
+```
+
+This builds the extension, provisions an isolated guest instance (installs Live
+Share + lean4 into it), and launches a host window (your default extensions +
+the Lean fixture) and a guest window, both loading the extension from source via
+`--extensionDevelopmentPath`. Then follow the printed steps: host opens
+`Fixture.lean` and starts a session; guest joins via the command palette, opens
+the shared file, and clicks into the proof — the "Lean Infoview (Live Share
+guest)" panel should show `⊢ p ∧ q`.
+
+Watch the **"Lean Live Share"** output channel in both windows (the host logs
+bridge/keepalive activity; the guest logs the webview lifecycle and forwards
+webview errors). Iterate with `npm --prefix extension run build` + "Developer:
+Reload Window" in both. A packaged `.vsix` (`npx @vscode/vsce package`) also
+works if you prefer installing into a real instance.
 
 ## Layout
 
