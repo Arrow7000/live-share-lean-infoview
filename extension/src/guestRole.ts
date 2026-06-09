@@ -4,11 +4,13 @@ import { GuestEditorClient } from '../../src/bridge/guestEditorClient.js'
 import { connectWebSocketGuest, type WebSocketChannel } from '../../src/bridge/webSocketChannel.js'
 import type { Location } from '../../src/infoview/api.js'
 import { createGuestEditorApi } from '../../src/infoview/guestEditorApi.js'
+import { FileProgressGutter } from './fileProgressGutter.js'
 import { GoalsAccomplishedGutter } from './goalsAccomplishedGutter.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
 import { portForSession } from './protocol.js'
 
 const PUBLISH_DIAGNOSTICS = 'textDocument/publishDiagnostics'
+const FILE_PROGRESS = '$/lean/fileProgress'
 
 const LEAN_LANGUAGES = new Set(['lean', 'lean4'])
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
@@ -71,11 +73,17 @@ export async function startGuestRole(
 
   const guestClient = new GuestEditorClient(channel)
 
-  // Render the blue "goals accomplished" gutter checkmark from forwarded Lean
-  // diagnostics (independent of the infoview panel).
+  // Render Lean's editor gutter decorations on the guest from forwarded
+  // notifications (independent of the infoview panel): the blue "goals
+  // accomplished" checkmark (from diagnostics) and the orange "elaborating"
+  // bar (from file progress).
   const gutter = new GoalsAccomplishedGutter(context.extensionUri)
   guestClient.onServerNotification(PUBLISH_DIAGNOSTICS, params =>
     gutter.update(params as { uri: string; diagnostics?: { range: any; leanTags?: number[] }[] }),
+  )
+  const progressGutter = new FileProgressGutter(context.extensionUri)
+  guestClient.onServerNotification(FILE_PROGRESS, params =>
+    progressGutter.update(params as { textDocument?: { uri?: string }; processing?: any[] }),
   )
 
   let infoviewHost: InfoviewHost | undefined
@@ -180,12 +188,13 @@ export async function startGuestRole(
     live = true
     if (init) log(`GUEST: server up (version ${init.serverInfo?.version}). Move the cursor into a proof.`)
     else log('GUEST: gave up waiting for the host server initialize result; the infoview will stay in "waiting".')
-    // Forward Lean diagnostics so the "goals accomplished" gutter can render.
+    // Forward diagnostics + file progress so the gutter decorations can render.
     // (Already-proven files only get a checkmark once diagnostics next update.)
     try {
       await guestClient.subscribeServerNotifications(PUBLISH_DIAGNOSTICS)
+      await guestClient.subscribeServerNotifications(FILE_PROGRESS)
     } catch (e) {
-      log(`GUEST: failed to subscribe to diagnostics: ${e instanceof Error ? e.message : String(e)}`)
+      log(`GUEST: failed to subscribe to server notifications: ${e instanceof Error ? e.message : String(e)}`)
     }
     await drivePanel()
   }
@@ -207,6 +216,7 @@ export async function startGuestRole(
       clearTimeout(timer)
       for (const s of subs) s.dispose()
       gutter.dispose()
+      progressGutter.dispose()
       editorApi.dispose()
       guestClient.dispose()
       channel.dispose()

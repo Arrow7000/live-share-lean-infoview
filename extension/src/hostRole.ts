@@ -71,6 +71,11 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
   }
   log(`HOST: WebSocket bridge listening on 127.0.0.1:${port}`)
 
+  // Avoid Live Share's "share this port?" prompt: that prompt comes from Live
+  // Share auto-detecting the listening port. Disabling auto-detection lets our
+  // *explicit* shareServer() call go through silently.
+  await suppressPortSharePrompt(log)
+
   // Expose the port to remote guests (no-op/redundant for same-machine guests,
   // which reach localhost:port directly). shareServer has no allowlist gate.
   let serverShare: vscode.Disposable | undefined
@@ -125,6 +130,30 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
       void wsHost.close()
       log('HOST: bridge disposed.')
     },
+  }
+}
+
+/**
+ * Disable Live Share's automatic port detection/prompt so our explicit
+ * `shareServer()` doesn't trigger a "share this port?" notification. Honors a
+ * user who has already chosen a value, and respects our own opt-out setting.
+ */
+async function suppressPortSharePrompt(log: (s: string) => void): Promise<void> {
+  if (!vscode.workspace.getConfiguration('leanLiveShare').get<boolean>('suppressPortSharePrompt', true)) {
+    return
+  }
+  const cfg = vscode.workspace.getConfiguration('liveshare')
+  const current = cfg.inspect<boolean>('autoShareServers')
+  const explicitlySet = current?.globalValue ?? current?.workspaceValue
+  if (explicitlySet === false) return // already disabled
+  try {
+    await cfg.update('autoShareServers', false, vscode.ConfigurationTarget.Global)
+    log(
+      'HOST: set liveshare.autoShareServers=false to avoid the port-share prompt ' +
+        '(revert in settings, or set leanLiveShare.suppressPortSharePrompt=false).',
+    )
+  } catch (e) {
+    log(`HOST: could not set liveshare.autoShareServers: ${describe(e)}`)
   }
 }
 

@@ -42,6 +42,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Check GitHub Releases for a newer build of this extension on startup and install it automatically. The most recently published release is always treated as the latest version."
+        },
+        "leanLiveShare.suppressPortSharePrompt": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "On the host, set `liveshare.autoShareServers` to `false` so Live Share doesn't prompt to share the bridge's port (the bridge shares it explicitly instead). Disable this to leave your Live Share settings untouched."
         }
       }
     }
