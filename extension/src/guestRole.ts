@@ -4,8 +4,7 @@ import { GuestEditorClient } from '../../src/bridge/guestEditorClient.js'
 import { connectWebSocketGuest, type WebSocketChannel } from '../../src/bridge/webSocketChannel.js'
 import type { Location } from '../../src/infoview/api.js'
 import { createGuestEditorApi } from '../../src/infoview/guestEditorApi.js'
-import { FileProgressGutter } from './fileProgressGutter.js'
-import { GoalsAccomplishedGutter } from './goalsAccomplishedGutter.js'
+import { LeanGutter } from './leanGutter.js'
 import { createInfoviewPanel, type InfoviewHost } from './infoviewWebview.js'
 import { portForSession } from './protocol.js'
 
@@ -74,17 +73,11 @@ export async function startGuestRole(
   const guestClient = new GuestEditorClient(channel)
 
   // Render Lean's editor gutter decorations on the guest from forwarded
-  // notifications (independent of the infoview panel): the blue "goals
-  // accomplished" checkmark (from diagnostics) and the orange "elaborating"
-  // bar (from file progress).
-  const gutter = new GoalsAccomplishedGutter(context.extensionUri)
-  guestClient.onServerNotification(PUBLISH_DIAGNOSTICS, params =>
-    gutter.update(params as { uri: string; diagnostics?: { range: any; leanTags?: number[] }[] }),
-  )
-  const progressGutter = new FileProgressGutter(context.extensionUri)
-  guestClient.onServerNotification(FILE_PROGRESS, params =>
-    progressGutter.update(params as { textDocument?: { uri?: string }; processing?: any[] }),
-  )
+  // notifications (independent of the infoview panel): processing (orange),
+  // fatal error (red), goals-accomplished (blue ✓), and unsolved-goals (🛠).
+  const gutter = new LeanGutter(context.extensionUri)
+  guestClient.onServerNotification(PUBLISH_DIAGNOSTICS, params => gutter.updateDiagnostics(params as never))
+  guestClient.onServerNotification(FILE_PROGRESS, params => gutter.updateProgress(params as never))
 
   let infoviewHost: InfoviewHost | undefined
   const editorApi = createGuestEditorApi(guestClient, {
@@ -135,7 +128,7 @@ export async function startGuestRole(
       return
     }
     for (const d of initial) {
-      gutter.update(d as { uri: string; diagnostics?: { range: any; leanTags?: number[] }[] })
+      gutter.updateDiagnostics(d as never)
       if (infoviewHost) void infoviewHost.infoview.gotServerNotification(PUBLISH_DIAGNOSTICS, d)
     }
   }
@@ -216,7 +209,6 @@ export async function startGuestRole(
       clearTimeout(timer)
       for (const s of subs) s.dispose()
       gutter.dispose()
-      progressGutter.dispose()
       editorApi.dispose()
       guestClient.dispose()
       channel.dispose()

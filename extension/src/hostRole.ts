@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import type * as vsls from 'vsls'
+import * as vsls from 'vsls'
 import { LeanBridgeHost } from '../../src/bridge/leanBridgeHost.js'
 import { makeUriTranslatingHostChannel } from '../../src/bridge/uriTranslation.js'
 import { startWebSocketHost, type WebSocketHost } from '../../src/bridge/webSocketChannel.js'
@@ -71,21 +71,6 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
   }
   log(`HOST: WebSocket bridge listening on 127.0.0.1:${port}`)
 
-  // Avoid Live Share's "share this port?" prompt: that prompt comes from Live
-  // Share auto-detecting the listening port. Disabling auto-detection lets our
-  // *explicit* shareServer() call go through silently.
-  await suppressPortSharePrompt(log)
-
-  // Expose the port to remote guests (no-op/redundant for same-machine guests,
-  // which reach localhost:port directly). shareServer has no allowlist gate.
-  let serverShare: vscode.Disposable | undefined
-  try {
-    serverShare = await api.shareServer({ port, displayName: SHARED_SERVER_NAME })
-    log(`HOST: shared server port ${port} to guests.`)
-  } catch (e) {
-    log(`HOST: shareServer failed (${describe(e)}); same-machine guests will still work.`)
-  }
-
   const toLocal = (s: string) => safeConvert(() => api.convertSharedUriToLocal(vscode.Uri.parse(s)).toString(), s)
   const toShared = (s: string) => safeConvert(() => api.convertLocalUriToShared(vscode.Uri.parse(s)).toString(), s)
   const hostClients: HostClients = {
@@ -98,6 +83,7 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
   // and rejoins). Each bridge is torn down when its socket closes.
   const bridges = new Set<LeanBridgeHost>()
   let accepting = true
+  let anyGuestConnected = false
   const accept = async () => {
     while (accepting) {
       let conn
@@ -107,6 +93,7 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
         break
       }
       if (!accepting) break
+      anyGuestConnected = true
       log('HOST: guest connected to bridge.')
       const channel = makeUriTranslatingHostChannel(conn, { incoming: toLocal, outgoing: toShared })
       const bridge = new LeanBridgeHost(channel, adapter, { log })
@@ -119,41 +106,49 @@ export async function startHostRole(api: vsls.LiveShare, log: (s: string) => voi
     }
   }
   void accept()
+
+  // Port sharing is LAZY. A same-machine guest reaches the WebSocket directly
+  // over loopback — no tunnel needed, and no prompt. We only call `shareServer`
+  // (which triggers Live Share's unavoidable "share this port?" confirmation)
+  // when a guest has joined but hasn't connected directly within a short window,
+  // i.e. they're remote and actually need the port tunnelled.
+  const shareEnabled = vscode.workspace
+    .getConfiguration('leanLiveShare')
+    .get<boolean>('shareServerForRemoteGuests', true)
+  let serverShare: vscode.Disposable | undefined
+  let sharePending = false
+  const maybeShareForRemoteGuest = () => {
+    if (!shareEnabled || serverShare || sharePending) return
+    sharePending = true
+    setTimeout(async () => {
+      sharePending = false
+      if (!accepting || serverShare || anyGuestConnected) return // local guest reached us directly
+      try {
+        serverShare = await api.shareServer({ port, displayName: SHARED_SERVER_NAME })
+        log(`HOST: a guest hasn't connected directly; shared port ${port} (remote guest tunnel).`)
+      } catch (e) {
+        log(`HOST: shareServer failed (${describe(e)}).`)
+      }
+    }, 6000)
+  }
+  const hasGuestPeer = () => api.peers.some(p => p.role === vsls.Role.Guest)
+  if (hasGuestPeer()) maybeShareForRemoteGuest()
+  const peersSub = api.onDidChangePeers(e => {
+    if (e.added.some(p => p.role === vsls.Role.Guest)) maybeShareForRemoteGuest()
+  })
+
   log('HOST: bridge is live; guests can now open the Lean infoview.')
 
   return {
     dispose: () => {
       accepting = false
+      peersSub.dispose()
       for (const b of bridges) b.dispose()
       bridges.clear()
       serverShare?.dispose()
       void wsHost.close()
       log('HOST: bridge disposed.')
     },
-  }
-}
-
-/**
- * Disable Live Share's automatic port detection/prompt so our explicit
- * `shareServer()` doesn't trigger a "share this port?" notification. Honors a
- * user who has already chosen a value, and respects our own opt-out setting.
- */
-async function suppressPortSharePrompt(log: (s: string) => void): Promise<void> {
-  if (!vscode.workspace.getConfiguration('leanLiveShare').get<boolean>('suppressPortSharePrompt', true)) {
-    return
-  }
-  const cfg = vscode.workspace.getConfiguration('liveshare')
-  const current = cfg.inspect<boolean>('autoShareServers')
-  const explicitlySet = current?.globalValue ?? current?.workspaceValue
-  if (explicitlySet === false) return // already disabled
-  try {
-    await cfg.update('autoShareServers', false, vscode.ConfigurationTarget.Global)
-    log(
-      'HOST: set liveshare.autoShareServers=false to avoid the port-share prompt ' +
-        '(revert in settings, or set leanLiveShare.suppressPortSharePrompt=false).',
-    )
-  } catch (e) {
-    log(`HOST: could not set liveshare.autoShareServers: ${describe(e)}`)
   }
 }
 
