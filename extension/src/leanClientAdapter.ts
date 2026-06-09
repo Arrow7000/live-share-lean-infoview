@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import type { DiagnosticsForUri, Disposable, LeanClientLike, ServerInitializeResultLike } from '../../src/bridge/types.js'
+import { extractUri, pickByFolder } from '../../src/bridge/uriRouting.js'
 
 function lspRange(r: vscode.Range) {
   return {
@@ -21,68 +22,105 @@ export interface RealLeanClient {
   /** Fires for `textDocument/publishDiagnostics` (Lean's enriched form). */
   diagnostics: vscode.Event<unknown>
   serverCapabilities(): unknown
+  /** The project root this client manages (an ExtUri; we read `fsPath`/`toString`). */
+  folderUri?: { fsPath?: string; toString(): string }
+}
+
+/** A live view of the host's Lean clients (one per project root). */
+export interface HostClients {
+  getClients(): RealLeanClient[]
+  onClientAdded?: (handler: (c: RealLeanClient) => void) => Disposable
+}
+
+function folderPathOf(c: RealLeanClient): string {
+  return c.folderUri?.fsPath ?? c.folderUri?.toString() ?? ''
+}
+
+function fsPathOf(uri: string): string | undefined {
+  try {
+    return vscode.Uri.parse(uri).fsPath
+  } catch {
+    return undefined
+  }
 }
 
 /**
- * Adapt a vscode-lean4 `LeanClient` (resolved lazily, since it may appear/restart)
- * to the bridge's `LeanClientLike`.
+ * Adapt the host's vscode-lean4 client(s) to the bridge's `LeanClientLike`,
+ * routing each request to the project whose root contains the request's URI
+ * (so multiple open Lean projects work), and fanning notifications/diagnostics
+ * out across all clients.
  */
-export function adaptLeanClient(resolve: () => RealLeanClient | undefined, log: (s: string) => void): LeanClientLike {
-  const require = (): RealLeanClient => {
-    const c = resolve()
-    if (!c) throw new Error('no Lean client available on the host yet')
-    return c
+export function adaptLeanClient(clients: HostClients, log: (s: string) => void): LeanClientLike {
+  const clientFor = (params: unknown): RealLeanClient | undefined => {
+    const list = clients.getClients()
+    const uri = extractUri(params)
+    return pickByFolder(list, folderPathOf, uri ? fsPathOf(uri) : undefined)
   }
+
   return {
     async sendRequest<T = unknown>(method: string, params: unknown): Promise<T> {
-      return (await require().sendRequest(method, params)) as T
+      const c = clientFor(params)
+      if (!c) throw new Error('no Lean client available on the host yet')
+      return (await c.sendRequest(method, params)) as T
     },
     async sendNotification(method: string, params: unknown): Promise<void> {
-      await require().sendNotification(method, params)
+      const c = clientFor(params)
+      if (!c) {
+        log(`sendNotification('${method}'): no matching Lean client; dropped`)
+        return
+      }
+      await c.sendNotification(method, params)
     },
     onServerNotification(method: string, handler: (params: unknown) => void): Disposable {
-      const client = resolve()
-      if (!client) {
-        log(`onServerNotification('${method}'): no client yet; notification will not be forwarded`)
-        return { dispose: () => {} }
+      // Subscribe across all current clients, and any that appear later.
+      const disposables: Disposable[] = []
+      const subscribe = (c: RealLeanClient) => {
+        if (method === 'textDocument/publishDiagnostics') {
+          disposables.push(c.diagnostics((params: unknown) => handler(params)))
+        } else {
+          disposables.push(
+            c.customNotification(({ method: m, params }) => {
+              if (m === method) handler(params)
+            }),
+          )
+        }
       }
-      if (method === 'textDocument/publishDiagnostics') {
-        return client.diagnostics((params: unknown) => handler(params))
-      }
-      return client.customNotification(({ method: m, params }) => {
-        if (m === method) handler(params)
-      })
+      for (const c of clients.getClients()) subscribe(c)
+      if (clients.onClientAdded) disposables.push(clients.onClientAdded(subscribe))
+      return { dispose: () => disposables.forEach(d => d.dispose()) }
     },
     getInitializeResult(): ServerInitializeResultLike | undefined {
-      const client = resolve()
-      if (!client) return undefined
-      const capabilities = client.serverCapabilities()
-      // serverInfo isn't on LeanClient's public surface; dig into the underlying
-      // LanguageClient, falling back to a plausible default so the infoview starts.
-      const anyClient = client as unknown as { client?: { initializeResult?: { serverInfo?: { name?: string; version?: string } } } }
-      const serverInfo = anyClient.client?.initializeResult?.serverInfo ?? { name: 'Lean 4 Server', version: '0.0.0' }
-      if (!capabilities) return undefined
-      return { serverInfo, capabilities }
+      for (const c of clients.getClients()) {
+        const capabilities = c.serverCapabilities()
+        if (!capabilities) continue
+        const anyClient = c as unknown as {
+          client?: { initializeResult?: { serverInfo?: { name?: string; version?: string } } }
+        }
+        const serverInfo = anyClient.client?.initializeResult?.serverInfo ?? { name: 'Lean 4 Server', version: '0.0.0' }
+        return { serverInfo, capabilities }
+      }
+      return undefined
     },
     getDiagnostics(): DiagnosticsForUri[] {
-      const client = resolve()
-      // Preferred source: lean4's own accumulated diagnostics store. These are the
-      // raw LSP-shaped params and crucially include the *silent* diagnostics
-      // (`GoalsAccomplished`) that lean4 filters OUT of VS Code's collection
-      // (see vscode-lean4 diagnostics.ts: it `.filter(d => !d.isSilent)` before
-      // setting vsCodeCollection). So `vscode.languages.getDiagnostics()` would
-      // never include the checkmark tag.
-      const collection = (client as unknown as { diagnosticCollection?: { diags?: Map<string, DiagnosticsForUri> } })
-        ?.diagnosticCollection
-      const diags = collection?.diags
-      if (diags && typeof diags.values === 'function') {
-        return [...diags.values()].map(p => ({ uri: p.uri, diagnostics: p.diagnostics ?? [] }))
-      }
-
-      // Fallback (only non-silent diagnostics): VS Code's collection. lean4 keeps
-      // leanTags on the Diagnostic objects, but silent ones (the checkmark) are absent.
-      log('getDiagnostics: lean4 diagnosticCollection.diags unavailable; falling back (no silent diagnostics)')
+      // Preferred source: lean4's own accumulated diagnostics store (across all
+      // clients). These are the raw LSP-shaped params and crucially include the
+      // *silent* diagnostics (`GoalsAccomplished`) that lean4 filters OUT of VS
+      // Code's collection (diagnostics.ts: `.filter(d => !d.isSilent)`), so
+      // `vscode.languages.getDiagnostics()` would never include the checkmark.
       const out: DiagnosticsForUri[] = []
+      let usedRawStore = false
+      for (const c of clients.getClients()) {
+        const diags = (c as unknown as { diagnosticCollection?: { diags?: Map<string, DiagnosticsForUri> } })
+          .diagnosticCollection?.diags
+        if (diags && typeof diags.values === 'function') {
+          usedRawStore = true
+          for (const p of diags.values()) out.push({ uri: p.uri, diagnostics: p.diagnostics ?? [] })
+        }
+      }
+      if (usedRawStore) return out
+
+      // Fallback (only non-silent diagnostics): VS Code's collection.
+      log('getDiagnostics: lean4 diagnosticCollection.diags unavailable; falling back (no silent diagnostics)')
       for (const [u, ds] of vscode.languages.getDiagnostics()) {
         if (!u.path.endsWith('.lean')) continue
         out.push({

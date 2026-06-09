@@ -20,12 +20,21 @@ export class WebSocketChannel implements BridgeChannel {
   private readonly requestHandlers = new Map<string, RequestHandler>()
   private readonly notifyHandlers = new Map<string, Set<NotifyHandler>>()
 
+  private readonly closeHandlers = new Set<() => void>()
+
   constructor(private readonly socket: WebSocket) {
     socket.on('message', (data: Buffer | string) => void this.onMessage(data.toString()))
     socket.on('close', () => {
       for (const { reject } of this.pending.values()) reject(new Error('socket closed'))
       this.pending.clear()
+      for (const h of [...this.closeHandlers]) h()
     })
+  }
+
+  /** Register a handler fired when the underlying socket closes. */
+  onClose(handler: () => void): Disposable {
+    this.closeHandlers.add(handler)
+    return { dispose: () => this.closeHandlers.delete(handler) }
   }
 
   private async onMessage(raw: string) {

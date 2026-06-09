@@ -14,6 +14,18 @@
 #
 # Iterate without re-running this: `npm --prefix extension run build` then run
 # "Developer: Reload Window" in both windows.
+#
+# Usage: scripts/dev-liveshare.sh [LEAN_PROJECT_DIR]
+#
+# The HOST window opens LEAN_PROJECT_DIR (a Lean project, so a Lean server
+# starts). It defaults to the bundled fixture, but you can point it at any other
+# project, e.g.:
+#
+#   scripts/dev-liveshare.sh ../lean-experiments/experiments/
+#
+# This keeps the extension source and the isolated VS Code data dirs anchored to
+# THIS repo, while the opened Lean project can live anywhere. You can also set it
+# via the PROJECT env var (the positional arg wins if both are given).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -24,6 +36,15 @@ HOST_DATA="$DEV/host-data"
 GUEST_DATA="$DEV/guest-data"
 GUEST_EXT="$DEV/guest-ext"
 CODE="${CODE:-code}"
+
+# The Lean project the HOST opens. Resolve relative paths against the caller's
+# CWD (not the repo root) so `../lean-experiments/experiments/` works as typed.
+PROJECT="${1:-${PROJECT:-$FIXTURE}}"
+if [ ! -d "$PROJECT" ]; then
+  echo "error: Lean project dir not found: '$PROJECT'" >&2
+  exit 1
+fi
+PROJECT="$(cd "$PROJECT" && pwd)"
 
 if ! command -v "$CODE" >/dev/null 2>&1; then
   echo "error: '$CODE' CLI not found on PATH. In VS Code run 'Shell Command: Install code command in PATH'." >&2
@@ -50,8 +71,9 @@ ensure_ext() {
 ensure_ext "$GUEST_EXT" "$GUEST_DATA" "ms-vsliveshare.vsliveshare" "vsliveshare"
 ensure_ext "$GUEST_EXT" "$GUEST_DATA" "leanprover.lean4" "lean4"
 
-echo "==> Launching HOST window (open a .lean file, then Live Share: Start)..."
-"$CODE" --user-data-dir "$HOST_DATA" --extensionDevelopmentPath "$EXT_DIR" --new-window "$FIXTURE"
+echo "==> Launching HOST window on: $PROJECT"
+echo "    (open a .lean file, then Live Share: Start)..."
+"$CODE" --user-data-dir "$HOST_DATA" --extensionDevelopmentPath "$EXT_DIR" --new-window "$PROJECT"
 
 echo "==> Launching GUEST window (Live Share: Join, paste link, open the .lean file)..."
 "$CODE" --user-data-dir "$GUEST_DATA" --extensions-dir "$GUEST_EXT" --extensionDevelopmentPath "$EXT_DIR" --new-window
@@ -61,8 +83,8 @@ cat <<'STEPS'
 ────────────────────────────────────────────────────────────────────────────
 Two VS Code windows should now be opening. Then:
 
-HOST window (opened on fixtures/lean-fixture):
-  1. Open Fixture.lean and wait for the Lean server (✓ in the status bar).
+HOST window (opened on the Lean project printed above):
+  1. Open a .lean file and wait for the Lean server (✓ in the status bar).
   2. Command Palette → "Live Share: Start Collaboration Session". The join link
      is copied to your clipboard.
 
@@ -70,9 +92,8 @@ GUEST window (blank):
   3. Command Palette → "Live Share: Join Collaboration Session..." and PASTE the
      link. (Use the command — don't click the link, or it may route to the wrong
      instance.) Sign in if asked; the SAME account as the host is fine.
-  4. In the shared file tree, open Fixture.lean and click inside the proof
-     (the `exact` line). The "Lean Infoview (Live Share guest)" panel should show
-     the goal `⊢ p ∧ q`.
+  4. In the shared file tree, open the same .lean file and click inside a proof.
+     The "Lean Infoview (Live Share guest)" panel should show the goal state.
 
 Diagnostics: in BOTH windows, Command Palette → "Lean Live Share: Show Log".
 The host logs bridge/keepalive activity; the guest logs the webview lifecycle
