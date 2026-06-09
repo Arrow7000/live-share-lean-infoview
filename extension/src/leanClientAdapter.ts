@@ -1,5 +1,11 @@
 import * as vscode from 'vscode'
-import type { DiagnosticsForUri, Disposable, LeanClientLike, ServerInitializeResultLike } from '../../src/bridge/types.js'
+import type {
+  DiagnosticsForUri,
+  Disposable,
+  FileProgressForUri,
+  LeanClientLike,
+  ServerInitializeResultLike,
+} from '../../src/bridge/types.js'
 import { extractUri, pickByFolder } from '../../src/bridge/uriRouting.js'
 
 function lspRange(r: vscode.Range) {
@@ -24,6 +30,8 @@ export interface RealLeanClient {
   serverCapabilities(): unknown
   /** The project root this client manages (an ExtUri; we read `fsPath`/`toString`). */
   folderUri?: { fsPath?: string; toString(): string }
+  /** Saved current file-progress per file (keyed by an ExtUri). */
+  progress?: Map<{ toString(): string }, unknown[]>
 }
 
 /** A live view of the host's Lean clients (one per project root). */
@@ -137,6 +145,17 @@ export function adaptLeanClient(clients: HostClients, log: (s: string) => void):
             }
           }),
         })
+      }
+      return out
+    },
+    getFileProgress(): FileProgressForUri[] {
+      const out: FileProgressForUri[] = []
+      for (const c of clients.getClients()) {
+        const progress = c.progress
+        if (!progress || typeof progress.entries !== 'function') continue
+        for (const [extUri, processing] of progress.entries()) {
+          out.push({ uri: extUri.toString(), processing: processing ?? [] })
+        }
       }
       return out
     },

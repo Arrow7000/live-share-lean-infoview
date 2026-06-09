@@ -178,10 +178,14 @@ export async function startGuestRole(
           log(`GUEST: applyEdit failed: ${e instanceof Error ? e.message : String(e)}`)
         }
       },
-      // "Restart File" — restart the Lean server's processing on the host.
+      // "Restart File" — restart the Lean server's processing on the host. The
+      // restart kills the file's RPC session, so tell the infoview to drop it
+      // (it closes a file's session on `didClose`) and reconnect cleanly, instead
+      // of hitting "Outdated RPC session" on the next goals fetch.
       restartFile: async (uri: string) => {
         try {
           await guestClient.restartFile(uri)
+          await infoviewHost?.infoview.sentClientNotification('textDocument/didClose', { textDocument: { uri } })
         } catch (e) {
           log(`GUEST: restartFile failed: ${e instanceof Error ? e.message : String(e)}`)
         }
@@ -222,16 +226,23 @@ export async function startGuestRole(
   // Pull the host's current diagnostics and replay them so the gutter checkmarks
   // and the infoview's messages are correct immediately on join / panel (re)open,
   // before the live subscription delivers the next update.
-  const replayDiagnostics = async () => {
-    let initial: Awaited<ReturnType<typeof guestClient.getDiagnostics>>
+  const replayServerState = async () => {
     try {
-      initial = await guestClient.getDiagnostics()
+      for (const d of await guestClient.getDiagnostics()) {
+        gutter.updateDiagnostics(d as never)
+        if (infoviewHost) void infoviewHost.infoview.gotServerNotification(PUBLISH_DIAGNOSTICS, d)
+      }
     } catch {
-      return
+      /* ignore */
     }
-    for (const d of initial) {
-      gutter.updateDiagnostics(d as never)
-      if (infoviewHost) void infoviewHost.infoview.gotServerNotification(PUBLISH_DIAGNOSTICS, d)
+    try {
+      for (const p of await guestClient.getFileProgress()) {
+        const params = { textDocument: { uri: p.uri }, processing: p.processing }
+        gutter.updateProgress(params as never)
+        if (infoviewHost) void infoviewHost.infoview.gotServerNotification(FILE_PROGRESS, params)
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -243,7 +254,7 @@ export async function startGuestRole(
     initialized = false
     onCursor(vscode.window.activeTextEditor)
     if (lastLoc) sendLoc(lastLoc)
-    void replayDiagnostics()
+    void replayServerState()
   }
 
   // Open the infoview panel (or reveal it if already open). Safe to call from the

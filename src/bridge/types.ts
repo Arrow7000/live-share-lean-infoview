@@ -57,6 +57,12 @@ export interface DiagnosticsForUri {
   version?: number
 }
 
+/** Current `$/lean/fileProgress` state for a file. */
+export interface FileProgressForUri {
+  uri: string
+  processing: unknown[]
+}
+
 export interface LeanClientLike {
   sendRequest<T = unknown>(method: string, params: unknown): Promise<T>
   sendNotification(method: string, params: unknown): void | Promise<void>
@@ -65,6 +71,8 @@ export interface LeanClientLike {
   getInitializeResult(): ServerInitializeResultLike | undefined
   /** Current diagnostics (with Lean's `leanTags`) for replay to a freshly-joined guest. */
   getDiagnostics(): DiagnosticsForUri[]
+  /** Current file-progress state, for replay to a freshly-joined guest. */
+  getFileProgress?(): FileProgressForUri[]
   /** Restart the Lean server's processing of the given file (host-side action). */
   restartFile?(uri: string): void | Promise<void>
 }
@@ -83,6 +91,8 @@ export const BridgeMethod = {
   getServerInitializeResult: 'host/getServerInitializeResult', // {} -> ServerInitializeResultLike | null
   /** Guest -> host: fetch current diagnostics (for initial gutter/messages on join). */
   getDiagnostics: 'host/getDiagnostics', // {} -> DiagnosticsForUri[]
+  /** Guest -> host: fetch current file-progress (for the initial elaborating bar). */
+  getFileProgress: 'host/getFileProgress', // {} -> FileProgressForUri[]
   /** Guest -> host: restart the Lean server's processing of a file. */
   restartFile: 'host/restartFile', // { uri }
 } as const

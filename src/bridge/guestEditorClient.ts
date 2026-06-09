@@ -4,6 +4,7 @@ import {
   BridgeNotification,
   type DiagnosticsForUri,
   type Disposable,
+  type FileProgressForUri,
   type NotifyHandler,
   type ServerInitializeResultLike,
   type ServerNotificationPayload,
@@ -64,6 +65,11 @@ export class GuestEditorClient {
   async getDiagnostics(): Promise<DiagnosticsForUri[]> {
     const result = await this.channel.request(BridgeMethod.getDiagnostics, {})
     return (result ?? []) as DiagnosticsForUri[]
+  }
+
+  async getFileProgress(): Promise<FileProgressForUri[]> {
+    const result = await this.channel.request(BridgeMethod.getFileProgress, {})
+    return (result ?? []) as FileProgressForUri[]
   }
 
   async restartFile(uri: string): Promise<void> {
