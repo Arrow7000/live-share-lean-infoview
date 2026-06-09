@@ -1,4 +1,9 @@
 import * as vscode from 'vscode'
+import {
+  computeDiagnosticGutterIcons,
+  DIAGNOSTIC_GUTTER_KINDS,
+  type GutterDiagnostic,
+} from '../../src/gutter/diagnosticGutterIcons.js'
 
 /** Lean's editor gutter signals, mirrored on the guest from forwarded data. */
 
@@ -7,30 +12,26 @@ const PROGRESS_PROCESSING = 1
 const PROGRESS_FATAL_ERROR = 2
 // LeanTag
 const TAG_UNSOLVED_GOALS = 1
-const TAG_GOALS_ACCOMPLISHED = 2
 
 interface FileProgressLike {
   textDocument?: { uri?: string }
   processing?: { range: { start: { line: number }; end: { line: number } }; kind?: number }[]
 }
-interface DiagnosticLike {
-  range: { start: { line: number }; end: { line: number } }
-  leanTags?: number[]
-}
 interface PublishDiagnosticsLike {
   uri?: string
-  diagnostics?: DiagnosticLike[]
+  diagnostics?: (GutterDiagnostic & { leanTags?: number[] })[]
 }
 
 interface UriDecorations {
   processing: vscode.Range[]
   fatalError: vscode.Range[]
-  goalsAccomplished: vscode.Range[]
   unsolvedGoals: vscode.Range[]
+  /** Diagnostic gutter icons (error/warning/✓ + connectors) keyed by icon kind. */
+  diagnosticIcons: Map<string, vscode.Range[]>
 }
 
 function emptyDecorations(): UriDecorations {
-  return { processing: [], fatalError: [], goalsAccomplished: [], unsolvedGoals: [] }
+  return { processing: [], fatalError: [], unsolvedGoals: [], diagnosticIcons: new Map() }
 }
 
 /**
@@ -39,23 +40,21 @@ function emptyDecorations(): UriDecorations {
  * vscode-lean4's `taskgutter.ts`:
  *   - orange "processing" bar (gutter + overview ruler) while elaborating,
  *   - red "fatal error" bar where the worker died,
- *   - blue "goals accomplished" ✓ checkmark for completed proofs,
+ *   - error / warning / "goals accomplished" gutter icons with the same
+ *     `-i/-l/-t[-passthrough]` connectors over a diagnostic's range,
  *   - the 🛠 "unsolved goals" end-of-line marker.
- *
- * Simplified vs upstream: no multi-line passthrough connectors, no
- * config-driven icon styles, and we let VS Code layer overlapping decorations.
  */
 export class LeanGutter {
   private readonly processing: vscode.TextEditorDecorationType
   private readonly fatalError: vscode.TextEditorDecorationType
-  private readonly goalsAccomplished: vscode.TextEditorDecorationType
   private readonly unsolvedGoals: vscode.TextEditorDecorationType
+  private readonly diagnosticIconTypes = new Map<string, vscode.TextEditorDecorationType>()
 
   private readonly byUri = new Map<string, UriDecorations>()
   private readonly subs: vscode.Disposable[] = []
 
   constructor(extensionUri: vscode.Uri) {
-    const asset = (f: string) => vscode.Uri.joinPath(extensionUri, 'assets', f)
+    const asset = (...p: string[]) => vscode.Uri.joinPath(extensionUri, 'assets', ...p)
 
     this.processing = vscode.window.createTextEditorDecorationType({
       overviewRulerLane: vscode.OverviewRulerLane.Left,
@@ -69,15 +68,19 @@ export class LeanGutter {
       gutterIconPath: asset('progress-error.svg'),
       gutterIconSize: 'contain',
     })
-    this.goalsAccomplished = vscode.window.createTextEditorDecorationType({
-      light: { gutterIconPath: asset('goals-accomplished-light.svg'), gutterIconSize: 'contain' },
-      dark: { gutterIconPath: asset('goals-accomplished-dark.svg'), gutterIconSize: 'contain' },
-    })
-    const unsolvedColor = new vscode.ThemeColor('editorInfo.foreground')
     this.unsolvedGoals = vscode.window.createTextEditorDecorationType({
       isWholeLine: true,
-      after: { contentText: '🛠', color: unsolvedColor, margin: '0 0 0 1ch' },
+      after: { contentText: '🛠', color: new vscode.ThemeColor('editorInfo.foreground'), margin: '0 0 0 1ch' },
     })
+    for (const kind of DIAGNOSTIC_GUTTER_KINDS) {
+      this.diagnosticIconTypes.set(
+        kind,
+        vscode.window.createTextEditorDecorationType({
+          light: { gutterIconPath: asset('diagnostic-gutter-icons', `${kind}-light.svg`), gutterIconSize: '100%' },
+          dark: { gutterIconPath: asset('diagnostic-gutter-icons', `${kind}-dark.svg`), gutterIconSize: '100%' },
+        }),
+      )
+    }
 
     this.subs.push(vscode.window.onDidChangeVisibleTextEditors(() => this.apply()))
   }
@@ -98,18 +101,25 @@ export class LeanGutter {
     this.apply()
   }
 
-  /** Update goals-accomplished / unsolved-goals ranges from a `publishDiagnostics`. */
+  /** Update diagnostic gutter icons + unsolved-goals markers from `publishDiagnostics`. */
   updateDiagnostics(params: PublishDiagnosticsLike): void {
     const uri = params.uri
     if (!uri) return
+    const diagnostics = params.diagnostics ?? []
     const entry = this.byUri.get(uri) ?? emptyDecorations()
-    entry.goalsAccomplished = []
-    entry.unsolvedGoals = []
-    for (const d of params.diagnostics ?? []) {
-      const line = d.range.start.line
-      if (d.leanTags?.includes(TAG_GOALS_ACCOMPLISHED)) entry.goalsAccomplished.push(new vscode.Range(line, 0, line, 0))
-      if (d.leanTags?.includes(TAG_UNSOLVED_GOALS)) entry.unsolvedGoals.push(new vscode.Range(line, 0, line, 0))
+
+    const icons = new Map<string, vscode.Range[]>()
+    for (const { line, kind } of computeDiagnosticGutterIcons(diagnostics)) {
+      const ranges = icons.get(kind) ?? []
+      ranges.push(new vscode.Range(line, 0, line, 0))
+      icons.set(kind, ranges)
     }
+    entry.diagnosticIcons = icons
+
+    entry.unsolvedGoals = diagnostics
+      .filter(d => d.leanTags?.includes(TAG_UNSOLVED_GOALS))
+      .map(d => new vscode.Range(d.range.start.line, 0, d.range.start.line, 0))
+
     this.byUri.set(uri, entry)
     this.apply()
   }
@@ -119,8 +129,10 @@ export class LeanGutter {
       const d = this.byUri.get(editor.document.uri.toString()) ?? emptyDecorations()
       editor.setDecorations(this.processing, d.processing)
       editor.setDecorations(this.fatalError, d.fatalError)
-      editor.setDecorations(this.goalsAccomplished, d.goalsAccomplished)
       editor.setDecorations(this.unsolvedGoals, d.unsolvedGoals)
+      for (const [kind, type] of this.diagnosticIconTypes) {
+        editor.setDecorations(type, d.diagnosticIcons.get(kind) ?? [])
+      }
     }
   }
 
@@ -128,8 +140,9 @@ export class LeanGutter {
     for (const s of this.subs) s.dispose()
     this.processing.dispose()
     this.fatalError.dispose()
-    this.goalsAccomplished.dispose()
     this.unsolvedGoals.dispose()
+    for (const t of this.diagnosticIconTypes.values()) t.dispose()
+    this.diagnosticIconTypes.clear()
     this.byUri.clear()
   }
 }
