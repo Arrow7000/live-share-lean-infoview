@@ -97,8 +97,9 @@ Share findings are in [`docs/DESIGN.md`](docs/DESIGN.md).
   guest needs something to host the webview and speak the bridge).
 - The host reads one private field of vscode-lean4 to replay the "goals
   accomplished" checkmark on join; it degrades gracefully if that ever changes.
-- Widgets **render**, but widget/infoview actions that edit the document from the
-  guest (insert text, apply edit, "Restart File") aren't wired back yet.
+- Widgets **render**, and most infoview actions work on the guest (go-to-source,
+  copy-to-comment/insert-text). Not yet wired: `applyEdit` (some widget edits) and
+  the "Restart File" button.
 - Multi-cursor, selection-aware features, and cross-bridge go-to-definition are
   basic. Request cancellation isn't forwarded yet.
 - Tested primarily on macOS with a single host project. See `docs/DESIGN.md` for

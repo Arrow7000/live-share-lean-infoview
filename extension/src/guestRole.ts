@@ -27,6 +27,18 @@ function locationOf(editor: vscode.TextEditor): Location {
   return { uri: editor.document.uri.toString(), range: { start: pos, end: pos } }
 }
 
+interface LspPosition {
+  line: number
+  character: number
+}
+interface LspRange {
+  start: LspPosition
+  end: LspPosition
+}
+function toRange(r: LspRange | undefined): vscode.Range | undefined {
+  return r ? new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character) : undefined
+}
+
 export interface GuestRoleSession extends vscode.Disposable {
   /** Reopen the infoview panel (or reveal it) — backs the openInfoview command. */
   openInfoview?: () => void
@@ -84,6 +96,43 @@ export async function startGuestRole(
     onServerNotification: (method, params) => void infoviewHost?.infoview.gotServerNotification(method, params),
     host: {
       copyToClipboard: async (text: string) => void vscode.env.clipboard.writeText(text),
+      // "Go to source location of message" etc. The location URI is `vsls:` (we
+      // translate it), which the guest can open directly.
+      showDocument: async (show: unknown) => {
+        const s = show as { uri: string; selection?: LspRange }
+        try {
+          const uri = vscode.Uri.parse(s.uri)
+          const existing = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === uri.toString())
+          await vscode.window.showTextDocument(uri, {
+            viewColumn: existing?.viewColumn,
+            preserveFocus: false,
+            selection: toRange(s.selection),
+          })
+        } catch (e) {
+          log(`GUEST: showDocument failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      },
+      // e.g. "Copy to comment". Inserts into the shared document (synced to the host).
+      insertText: async (text: string, kind: string, pos?: { textDocument: { uri: string }; position: LspPosition }) => {
+        try {
+          const editor = pos
+            ? vscode.window.visibleTextEditors.find(
+                e => e.document.uri.toString() === vscode.Uri.parse(pos.textDocument.uri).toString(),
+              )
+            : vscode.window.activeTextEditor
+          if (!editor) return
+          const at = pos ? new vscode.Position(pos.position.line, pos.position.character) : editor.selection.active
+          if (kind === 'above') {
+            const line = editor.document.lineAt(at.line)
+            const indent = ' '.repeat(line.firstNonWhitespaceCharacterIndex)
+            await editor.edit(b => b.insert(line.range.start, `${indent}${text.replace(/\n/g, '\n' + indent)}\n`))
+          } else {
+            await editor.edit(b => b.insert(at, text))
+          }
+        } catch (e) {
+          log(`GUEST: insertText failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      },
     },
     log,
   })
