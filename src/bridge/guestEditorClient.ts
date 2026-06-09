@@ -66,6 +66,10 @@ export class GuestEditorClient {
     return (result ?? []) as DiagnosticsForUri[]
   }
 
+  async restartFile(uri: string): Promise<void> {
+    await this.channel.request(BridgeMethod.restartFile, { uri })
+  }
+
   /** Register a local handler for a forwarded server notification. */
   onServerNotification(method: string, handler: NotifyHandler): Disposable {
     let set = this.serverNotifyHandlers.get(method)

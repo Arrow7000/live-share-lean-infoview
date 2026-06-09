@@ -39,6 +39,42 @@ function toRange(r: LspRange | undefined): vscode.Range | undefined {
   return r ? new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character) : undefined
 }
 
+interface LspTextEdit {
+  range: LspRange
+  newText?: string
+  snippet?: { value: string }
+}
+interface LspTextDocumentEdit {
+  textDocument?: { uri?: string }
+  edits?: LspTextEdit[]
+}
+interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>
+  documentChanges?: LspTextDocumentEdit[]
+}
+
+/**
+ * Convert an LSP WorkspaceEdit to a vscode.WorkspaceEdit. Handles `changes` and
+ * `documentChanges` text edits (the common infoview cases). Snippet edits are
+ * inserted literally (no placeholder expansion); file create/rename/delete ops
+ * are ignored.
+ */
+function lspWorkspaceEditToVscode(edit: LspWorkspaceEdit): vscode.WorkspaceEdit {
+  const we = new vscode.WorkspaceEdit()
+  const applyEdits = (uri: string, edits: LspTextEdit[] | undefined) => {
+    const target = vscode.Uri.parse(uri)
+    for (const e of edits ?? []) {
+      const range = toRange(e.range)
+      if (range) we.replace(target, range, e.newText ?? e.snippet?.value ?? '')
+    }
+  }
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) applyEdits(uri, edits)
+  for (const dc of edit.documentChanges ?? []) {
+    if (dc.textDocument?.uri) applyEdits(dc.textDocument.uri, dc.edits)
+  }
+  return we
+}
+
 export interface GuestRoleSession extends vscode.Disposable {
   /** Reopen the infoview panel (or reveal it) — backs the openInfoview command. */
   openInfoview?: () => void
@@ -131,6 +167,23 @@ export async function startGuestRole(
           }
         } catch (e) {
           log(`GUEST: insertText failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      },
+      // Apply an LSP WorkspaceEdit to the shared document(s); syncs to the host.
+      applyEdit: async (edit: unknown) => {
+        try {
+          const we = lspWorkspaceEditToVscode(edit as LspWorkspaceEdit)
+          await vscode.workspace.applyEdit(we)
+        } catch (e) {
+          log(`GUEST: applyEdit failed: ${e instanceof Error ? e.message : String(e)}`)
+        }
+      },
+      // "Restart File" — restart the Lean server's processing on the host.
+      restartFile: async (uri: string) => {
+        try {
+          await guestClient.restartFile(uri)
+        } catch (e) {
+          log(`GUEST: restartFile failed: ${e instanceof Error ? e.message : String(e)}`)
         }
       },
     },

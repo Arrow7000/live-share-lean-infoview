@@ -15,13 +15,20 @@ import type { BridgeChannel, Disposable, NotifyHandler, RequestHandler } from '.
 
 export type UriMapper = (value: string) => string
 
-/** Deep-clone `value`, rewriting every string that looks like a URI via `map`. */
+/**
+ * Deep-clone `value`, rewriting every string that looks like a URI via `map`.
+ * Object *keys* that look like URIs are remapped too — needed for LSP shapes
+ * like `WorkspaceEdit.changes`, which is keyed by document URI.
+ */
 export function remapUris(value: unknown, map: UriMapper, looksLikeUri: (s: string) => boolean): unknown {
   if (typeof value === 'string') return looksLikeUri(value) ? map(value) : value
   if (Array.isArray(value)) return value.map(v => remapUris(v, map, looksLikeUri))
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = remapUris(v, map, looksLikeUri)
+    for (const [k, v] of Object.entries(value)) {
+      const key = looksLikeUri(k) ? map(k) : k
+      out[key] = remapUris(v, map, looksLikeUri)
+    }
     return out
   }
   return value

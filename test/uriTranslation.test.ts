@@ -26,6 +26,19 @@ test('remapUris rewrites only URI-looking strings, deeply', () => {
   assert.equal(out.nested[2], 42)
 })
 
+test('remapUris rewrites URI-looking object keys (e.g. WorkspaceEdit.changes)', () => {
+  const edit = {
+    changes: {
+      'vsls:/A.lean': [{ range: {}, newText: 'x' }],
+      'vsls:/B.lean': [{ range: {}, newText: 'y' }],
+    },
+  }
+  const out = remapUris(edit, s => s.replace('vsls:', 'file:'), isUri('vsls')) as {
+    changes: Record<string, unknown>
+  }
+  assert.deepEqual(Object.keys(out.changes).sort(), ['file:/A.lean', 'file:/B.lean'])
+})
+
 test('translating host channel maps request params in and results out', async () => {
   const [hostInner, guest] = createLoopbackPair()
   const host = makeUriTranslatingHostChannel(hostInner, {

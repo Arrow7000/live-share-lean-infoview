@@ -65,6 +65,8 @@ export interface LeanClientLike {
   getInitializeResult(): ServerInitializeResultLike | undefined
   /** Current diagnostics (with Lean's `leanTags`) for replay to a freshly-joined guest. */
   getDiagnostics(): DiagnosticsForUri[]
+  /** Restart the Lean server's processing of the given file (host-side action). */
+  restartFile?(uri: string): void | Promise<void>
 }
 
 /** Bridge request methods — a 1:1 image of the infoview's `EditorApi`. */
@@ -81,6 +83,8 @@ export const BridgeMethod = {
   getServerInitializeResult: 'host/getServerInitializeResult', // {} -> ServerInitializeResultLike | null
   /** Guest -> host: fetch current diagnostics (for initial gutter/messages on join). */
   getDiagnostics: 'host/getDiagnostics', // {} -> DiagnosticsForUri[]
+  /** Guest -> host: restart the Lean server's processing of a file. */
+  restartFile: 'host/restartFile', // { uri }
 } as const
 
 /** Bridge notifications (host -> guest). */

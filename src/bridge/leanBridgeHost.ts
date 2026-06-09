@@ -88,6 +88,11 @@ export class LeanBridgeHost {
     this.on(BridgeMethod.getServerInitializeResult, async () => this.client.getInitializeResult() ?? null)
 
     this.on(BridgeMethod.getDiagnostics, async () => this.client.getDiagnostics())
+
+    this.on(BridgeMethod.restartFile, async (p: { uri: string }) => {
+      await this.client.restartFile?.(p.uri)
+      return null
+    })
   }
 
   private on(method: string, handler: (params: any) => Promise<unknown>) {

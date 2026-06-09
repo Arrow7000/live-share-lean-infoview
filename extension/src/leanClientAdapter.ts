@@ -140,5 +140,16 @@ export function adaptLeanClient(clients: HostClients, log: (s: string) => void):
       }
       return out
     },
+    async restartFile(uri: string): Promise<void> {
+      // vscode-lean4's restart only acts on the active editor (the `lean4.restartFile`
+      // command), and its provider API needs an ExtUri we can't construct. So reveal
+      // the file (which makes it the active Lean editor on the host) and run the command.
+      try {
+        await vscode.window.showTextDocument(vscode.Uri.parse(uri), { preserveFocus: false })
+        await vscode.commands.executeCommand('lean4.restartFile')
+      } catch (e) {
+        log(`restartFile failed: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
   }
 }
